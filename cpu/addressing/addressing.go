@@ -7,11 +7,11 @@ type Mode int
 const (
 	IMP Mode = iota
 	IMM
-	ZP
+	ZPG
 	ZPX
 	ZPY
-	IZX
-	IZY
+	INX
+	INY
 	ABS
 	ABX
 	ABY

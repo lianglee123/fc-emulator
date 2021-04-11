@@ -77,5 +77,7 @@ const (
 	SLO
 	SRE
 
+	ISB
+
 	INVALID
 )

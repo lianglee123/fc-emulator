@@ -1,0 +1,1 @@
+# A FC emulator write in Golang

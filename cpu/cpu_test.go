@@ -3,6 +3,7 @@ package cpu
 import (
 	"errors"
 	"fc-emulator/cpu/addressing"
+	"fc-emulator/ppu"
 	"fc-emulator/rom"
 	"fmt"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func NewLogDiffer(logName string) *LogDiffer {
 	if err != nil {
 		panic(err)
 	}
-	d.logs = strings.Split(string(data), "\r\n")
+	d.logs = strings.Split(string(data), "\n")
 	return d
 }
 func (d *LogDiffer) HasNext() bool {
@@ -60,7 +61,7 @@ func (d *LogDiffer) Diff(traceLog *TraceLog, cpu *CPU) error {
 func TestCPU(t *testing.T) {
 	nesRom, err := rom.LoadNesRom("nestest.nes")
 	require.NoError(t, err)
-	cpuMemo := NewMemo(nesRom)
+	cpuMemo := NewMemo(nesRom, ppu.NewPPU(nesRom))
 	c := NewCPU(cpuMemo, true)
 	c.Reset()
 	c.register.PC = 0xC000

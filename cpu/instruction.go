@@ -23,6 +23,8 @@ func codeCount() int {
 }
 
 // http://obelisk.me.uk/6502/reference.html#JMP
+// https://www.masswerk.at/6502/6502_instruction_set.html
+// https://www.pagetable.com/c64ref/6502/
 var instructionTable = [256]*Instruction{
 
 	// Sets the program counter to the address specified by the operand.
@@ -725,6 +727,12 @@ func (c *CPU) StackPush(v uint8) {
 	addr := uint16(c.register.S) + 0x0100 // sp指针从0x1FF处向下增长
 	c.memo.Write(addr, v)
 	c.register.S -= 1
+}
+
+func (c *CPU) StackPushWord(w uint16) {
+	// 要和出站顺序对应
+	c.StackPush(byte(w >> 8))
+	c.StackPush(byte(w & 0xFF))
 }
 
 func (c *CPU) StackPop() uint8 {

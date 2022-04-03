@@ -23,15 +23,16 @@ type DefaultMemo struct {
 	pad2    pad.Pad
 }
 
-func NewMemo(rom *rom.NesRom) Memo {
+func NewMemo(rom *rom.NesRom, _ppu ppu.PPU) Memo {
 	prgRom := rom.PrgRom
 	if len(rom.PrgRom) == 16*utils.Kb { // Mapper0 Prg Mirror
 		prgRom = append(rom.PrgRom, rom.PrgRom...)
 	}
 	memo := &DefaultMemo{
-		Ram:     [2048]byte{},
+		Ram:     [2 * utils.Kb]byte{},
 		Trainer: rom.Trainer,
 		PrgRom:  prgRom,
+		ppu:     _ppu,
 	}
 	return memo
 }
@@ -40,7 +41,7 @@ func (m *DefaultMemo) Read(addr uint16) byte {
 	addr = m.handleMirror(addr)
 	if between(addr, 0, 0x07FF) { // 2k RAM
 		return m.Ram[addr]
-	} else if between(addr, 0x2000, 0x2007) { // ppu register
+	} else if between(addr, 0x2000, 0x3FFF) { // ppu register
 		return m.ppu.ReadForCPU(addr)
 	} else if between(addr, 0x4000, 0x4013) { // some io register
 		return 0
@@ -60,7 +61,7 @@ func (m *DefaultMemo) Read(addr uint16) byte {
 		addr -= 0x8000
 		return m.PrgRom[addr]
 	} else {
-		panic(Str("Read Wrong Memo Addr", addr))
+		panic(Str("Read Wrong Data Addr", addr))
 	}
 }
 
@@ -71,13 +72,10 @@ func (m *DefaultMemo) ReadWord(addr uint16) uint16 {
 }
 
 func (m *DefaultMemo) Write(addr uint16, val byte) {
-	if val == 0x40 {
-		println("############ write 0x40 #############", addr)
-	}
 	addr = m.handleMirror(addr)
 	if between(addr, 0, 0x07FF) { // 2k RAM
 		m.Ram[addr] = val
-	} else if between(addr, 0x2000, 0x2007) { // ppu register
+	} else if between(addr, 0x2000, 0x3FFF) { // ppu register
 		m.ppu.WriteForCPU(addr, val)
 	} else if between(addr, 0x4000, 0x4013) {
 		// io register
@@ -89,7 +87,7 @@ func (m *DefaultMemo) Write(addr uint16, val byte) {
 	} else if between(addr, 0x4015, 0x5fff) {
 		// some io register and expansion Rom
 	} else {
-		panic(Str("Write Wrong Memo Addr", addr, val))
+		panic(Str("Write Wrong Data Addr", addr, val))
 	}
 }
 

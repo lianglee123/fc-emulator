@@ -13,7 +13,3 @@ func Uint16(lowByte, highByte byte) *uint16 {
 	v := uint16(highByte)<<8 | uint16(lowByte)
 	return &v
 }
-
-func uint16Ptr(v uint16) *uint16 {
-	return &v
-}

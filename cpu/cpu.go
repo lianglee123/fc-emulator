@@ -54,6 +54,15 @@ type TraceLog struct {
 }
 
 func (c *CPU) ExecuteOneInstruction() (*TraceLog, error) {
+	if c.debug {
+		return c.ExecuteOneInstructionInDebug()
+	} else {
+		err := c.ExecuteOneInstructionNoDebug()
+		return nil, err
+	}
+}
+
+func (c *CPU) ExecuteOneInstructionInDebug() (*TraceLog, error) {
 	opcodeNumber := c.memo.Read(c.register.PC)
 	traceLog := &TraceLog{OldReg: *c.register, opcodeNumber: opcodeNumber}
 	c.increasePC()
@@ -69,6 +78,18 @@ func (c *CPU) ExecuteOneInstruction() (*TraceLog, error) {
 	instruction.Handle(c, addr)
 	traceLog.NewReg = *c.register
 	return traceLog, nil
+}
+
+func (c *CPU) ExecuteOneInstructionNoDebug() error {
+	opcodeNumber := c.memo.Read(c.register.PC)
+	c.increasePC()
+	instruction := instructionTable[opcodeNumber]
+	if instruction == nil {
+		return errors.New(fmt.Sprintf("opcode 0x%02X is not support", opcodeNumber))
+	}
+	addr := c.Addressing(instruction.Mode)
+	instruction.Handle(c, addr)
+	return nil
 }
 
 func (c *CPU) reset() {

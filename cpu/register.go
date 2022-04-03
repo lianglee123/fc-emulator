@@ -33,10 +33,6 @@ func (r *Register) setFlag(f Flag, val bool) {
 	}
 }
 
-func (r *Register) setP(val uint16) {
-
-}
-
 func (r *Register) setNZFlag(value uint8) {
 	r.setFlag(FLAG_Z, value == 0)
 	r.setFlag(FLAG_N, value >= 128)

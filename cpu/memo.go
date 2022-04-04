@@ -33,6 +33,8 @@ func NewMemo(rom *rom.NesRom, _ppu ppu.PPU) Memo {
 		Trainer: rom.Trainer,
 		PrgRom:  prgRom,
 		ppu:     _ppu,
+		pad1:    pad.NewPad(),
+		pad2:    pad.NewPad(),
 	}
 	return memo
 }

@@ -1,5 +1,7 @@
 package pad
 
+import "fmt"
+
 type Pad interface {
 	ReadForCPU() byte
 	UpdateButton(buttonType ButtonType, pressDown bool)
@@ -34,6 +36,7 @@ const (
 )
 
 func (p *DefaultPad) UpdateButton(buttonType ButtonType, pressDown bool) {
+	fmt.Printf("update button %v %v", buttonType, pressDown)
 	if pressDown {
 		p.data |= byte(buttonType)
 	} else {
@@ -41,6 +44,7 @@ func (p *DefaultPad) UpdateButton(buttonType ButtonType, pressDown bool) {
 	}
 }
 func (p *DefaultPad) WriteForCPU(value byte) {
+	//fmt.Printf("write pad 0x%b\n", value)
 	if value&0x01 == 0x01 {
 		p.strobe = true
 	} else {
@@ -55,6 +59,7 @@ func (p *DefaultPad) ReadForCPU() byte {
 	} else {
 		res := (p.data >> p.buttonIndex) & 0x01
 		p.buttonIndex += 1
+		fmt.Printf("read pad 0x%b\n", res)
 		return res
 	}
 }

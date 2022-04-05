@@ -28,6 +28,28 @@ func NewRegisterManager() *RegisterManager {
 	}
 }
 
+// STATUS
+//7  bit  0
+//---- ----
+//VSO. ....
+//|||| ||||
+//|||+-++++- Least significant bits previously written into a PPU register
+//|||        (due to register not being updated for this address)
+//||+------- Sprite overflow. The intent was for this flag to be set
+//||         whenever more than eight sprites appear on a scanline, but a
+//||         hardware bug causes the actual behavior to be more complicated
+//||         and generate false positives as well as false negatives; see
+//||         PPU sprite evaluation. This flag is set during sprite
+//||         evaluation and cleared at dot 1 (the second dot) of the
+//||         pre-render line.
+//|+-------- Sprite 0 Hit.  Set when a nonzero pixel of sprite 0 overlaps
+//|          a nonzero background pixel; cleared at dot 1 of the pre-render
+//|          line.  Used for raster timing.
+//+--------- Vertical blank has started (0: not in vblank; 1: in vblank).
+//Set at dot 1 of line 241 (the line *after* the post-render
+//line); cleared after reading $2002 and at dot 1 of the
+//pre-render line.
+
 // 7  bit  0
 //---- ----
 //VPHB SINN
@@ -198,6 +220,14 @@ func (r PPUCTRL) BackgroundPatternTableAddress() uint16 {
 	}
 }
 
+func (r PPUCTRL) SprintPatternTableAddress() uint16 {
+	if r.BackgroundPatternTableAddress() == 0x0000 {
+		return 0x1000
+	} else {
+		return 0x0000
+	}
+}
+
 func (r PPUCTRL) SpritePatternTableAddress() uint16 {
 	if utils.GetBitFromRight(byte(r), 4) == 0 {
 		return 0x1000
@@ -209,6 +239,14 @@ func (r PPUCTRL) SpritePatternTableAddress() uint16 {
 // Sprite size (0: 8x8 pixels; 1: 8x16 pixels)
 func (r PPUCTRL) SpriteSize() byte {
 	return utils.GetBitFromRight(byte(r), 5)
+}
+
+func (r PPUCTRL) SpriteHeight() byte {
+	if r.SpriteSize() == 0 {
+		return 8
+	} else {
+		return 16
+	}
 }
 
 // PPU master/slave select (0: read backdrop from EXT pins; 1: output color on EXT pins)

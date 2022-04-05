@@ -24,3 +24,10 @@ func GetBitFromRight(v byte, index int) byte {
 	}
 	return (v >> index) & 0x1
 }
+
+func IsSet(v byte, index int) bool {
+	if index >= 8 || index < 0 {
+		panic("index should between [0, 8)")
+	}
+	return ((v >> index) & 0x1) == 1
+}

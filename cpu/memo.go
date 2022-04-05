@@ -23,7 +23,7 @@ type DefaultMemo struct {
 	pad2    pad.Pad
 }
 
-func NewMemo(rom *rom.NesRom, _ppu ppu.PPU) Memo {
+func NewMemo(rom *rom.NesRom, _ppu ppu.PPU, pad1, pad2 pad.Pad) Memo {
 	prgRom := rom.PrgRom
 	if len(rom.PrgRom) == 16*utils.Kb { // Mapper0 Prg Mirror
 		prgRom = append(rom.PrgRom, rom.PrgRom...)
@@ -33,8 +33,8 @@ func NewMemo(rom *rom.NesRom, _ppu ppu.PPU) Memo {
 		Trainer: rom.Trainer,
 		PrgRom:  prgRom,
 		ppu:     _ppu,
-		pad1:    pad.NewPad(),
-		pad2:    pad.NewPad(),
+		pad1:    pad1,
+		pad2:    pad2,
 	}
 	return memo
 }
@@ -63,7 +63,7 @@ func (m *DefaultMemo) Read(addr uint16) byte {
 		addr -= 0x8000
 		return m.PrgRom[addr]
 	} else {
-		panic(Str("Read Wrong Data Addr", addr))
+		panic(fmt.Sprintf("Read Wrong Data Addr: %X", addr))
 	}
 }
 
@@ -86,6 +86,10 @@ func (m *DefaultMemo) Write(addr uint16, val byte) {
 		pageNo := uint16(val)
 		left := pageNo * 256
 		m.ppu.SetOAM(m.copyRam(left, left+256))
+	} else if addr == 0x4016 {
+		m.pad1.WriteForCPU(val)
+	} else if addr == 0x4017 {
+		m.pad2.WriteForCPU(val)
 	} else if between(addr, 0x4015, 0x5fff) {
 		// some io register and expansion Rom
 	} else {

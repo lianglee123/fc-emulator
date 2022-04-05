@@ -57,6 +57,18 @@ func TestShift(t *testing.T) {
 
 }
 
+func TestPPUADDR_Add(t *testing.T) {
+	fmt.Printf("%X\n", PPUCTRL_ADDR)
+	fmt.Printf("%X\n", PPUMASK_ADDR)
+	fmt.Printf("%X\n", PPUSTATUS_ADDR)
+	fmt.Printf("%X\n", OAMADDR_ADDR)
+	fmt.Printf("%X\n", OAMDATA_ADDR)
+	fmt.Printf("%X\n", PPUSCROLL_ADDR)
+	fmt.Printf("%X\n", PPUADDR_ADDR)
+	fmt.Printf("%X\n", PPUDATA_ADDR)
+	fmt.Printf("%X\n", OAMDMA_ADDR)
+
+}
 func TestDrawImage(t *testing.T) {
 	nameTables := []byte{}
 	for i := 0; i < 0xFF; i++ {
@@ -89,26 +101,6 @@ func TestDrawImage(t *testing.T) {
 	OpenImageFile("patternTable00")
 }
 
-func ScaleImage(img *image.RGBA, scale int) *image.RGBA {
-	if scale <= 1 {
-		return img
-	}
-	minP := img.Bounds().Min
-	maxP := img.Bounds().Max
-	fmt.Println(img.Bounds())
-	xLen := (maxP.X - minP.X) * scale
-	yLen := (maxP.Y - minP.Y) * scale
-	res := image.NewRGBA(image.Rect(0, 0, xLen, yLen))
-	for y := 0; y < maxP.Y; y++ {
-		for x := 0; x < maxP.X; x++ {
-			c := img.At(x, y)
-			xS := x * scale
-			yS := y * scale
-			draw.Draw(res, image.Rect(xS, yS, xS+scale, yS+scale), &image.Uniform{C: c}, image.Point{}, draw.Src)
-		}
-	}
-	return res
-}
 func TestTemp(t *testing.T) {
 	//m := image.NewRGBA(image.Rect(0, 0, 100, 100))
 	//c := uint32ToRgb(PaletteRGB[0x30])

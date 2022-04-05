@@ -1,6 +1,9 @@
 package ppu
 
 import (
+	"fc-emulator/utils"
+	"fmt"
+	"github.com/nfnt/resize"
 	"image"
 	"image/color"
 	"image/draw"
@@ -54,14 +57,14 @@ func Save2jpeg(filename string, im image.Image) {
 func DrawImage(nameTable []byte, patternTable []byte, attributeTable []byte, palette []byte) []byte {
 	m := image.NewRGBA(image.Rect(0, 0, 256, 240))
 	for tileIndex, patternIndex := range nameTable {
-		tileColorData := getColorDataFromPatternTable(int(patternIndex), patternTable)
+		tileColorData := GetColorDataFromPatternTable(int(patternIndex), patternTable)
 		colorMaskByte := getColorMaskDataFromAttributeTable(tileIndex, attributeTable)
 		//fmt.Printf("colorMaskByte: %b", colorMaskByte)
 		//fmt.Println(colorMaskByte)
 		mergeRgbDataWithColorMaskByte(&tileColorData, colorMaskByte)
 		//printInGrid(tileColorData)
 		tileRGBData := tileColorData2RGBData(&tileColorData, palette)
-		tileImage := tileImage(&tileRGBData)
+		tileImage := convert2tileImage(&tileRGBData)
 
 		appendTile2Screen(m, tileIndex, tileImage)
 	}
@@ -71,14 +74,14 @@ func DrawImage(nameTable []byte, patternTable []byte, attributeTable []byte, pal
 func GenTileImage(nameTable []byte, patternTable []byte, attributeTable []byte, palette []byte) []*image.RGBA {
 	res := make([]*image.RGBA, 0, len(nameTable))
 	for tileIndex, patternIndex := range nameTable {
-		tileColorData := getColorDataFromPatternTable(int(patternIndex), patternTable)
+		tileColorData := GetColorDataFromPatternTable(int(patternIndex), patternTable)
 		colorMaskByte := getColorMaskDataFromAttributeTable(tileIndex, attributeTable)
 		//fmt.Printf("colorMaskByte: %b", colorMaskByte)
 		//fmt.Println(colorMaskByte)
 		mergeRgbDataWithColorMaskByte(&tileColorData, colorMaskByte)
 		//printInGrid(tileColorData)
 		tileRGBData := tileColorData2RGBData(&tileColorData, palette)
-		tileImage := tileImage(&tileRGBData)
+		tileImage := convert2tileImage(&tileRGBData)
 		res = append(res, tileImage)
 	}
 	return res
@@ -87,15 +90,91 @@ func GenTileImage(nameTable []byte, patternTable []byte, attributeTable []byte, 
 func ScreenRec() image.Rectangle {
 	return image.Rect(0, 0, 8*32, 8*30)
 }
-
-func GenBg(nameTable []byte, patternTable []byte, attributeTable []byte, palette Palette) image.Image {
-	imgs := make([]*image.RGBA, 0, len(nameTable))
+func NewScreenImage() *image.RGBA {
+	res := image.NewRGBA(ScreenRec())
+	draw.Draw(res, res.Bounds(), image.NewUniform(color.Black), image.Point{}, draw.Src)
+	return res
+}
+func DrawPatternTable(patternTable []byte, attributeColorMaskFn AttributeColorMask, palette Palette) *image.RGBA {
+	if len(patternTable)/16 != 256 {
+		panic(fmt.Sprintf("tile count is not 256, is %v", len(patternTable)/16))
+	}
+	nameTable := make([]byte, 0, 256)
+	for i := 0; i < 256; i++ {
+		nameTable = append(nameTable, byte(i))
+	}
+	imgs := make([]*image.RGBA, 0, 256)
 	for tileIndex, patternIndex := range nameTable {
-		tileColorData := getColorDataFromPatternTable(int(patternIndex), patternTable)
-		colorMaskByte := getColorMaskDataFromAttributeTable(tileIndex, attributeTable)
+		tileColorData := GetColorDataFromPatternTable(int(patternIndex), patternTable)
+		colorMaskByte := attributeColorMaskFn(tileIndex)
 		mergeRgbDataWithColorMaskByte(&tileColorData, colorMaskByte)
 		tileRGBData := tileColorData2RGBData2(&tileColorData, palette)
-		tileImage := tileImage(&tileRGBData)
+		tileImage := convert2tileImage(&tileRGBData)
+		imgs = append(imgs, tileImage)
+	}
+	return ComposeImage(imgs, 8, 16)
+}
+
+func ScaleImage(img image.Image, scale int) image.Image {
+	w := img.Bounds().Max.X - img.Bounds().Min.X
+	h := img.Bounds().Max.Y - img.Bounds().Min.Y
+	return resize.Resize(uint(w*scale), uint(h*scale), img, resize.Lanczos3)
+	//if scale <= 1 {
+	//	return img
+	//}
+	//minP := img.Bounds().Min
+	//maxP := img.Bounds().Max
+	//xLen := (maxP.X - minP.X) * scale
+	//yLen := (maxP.Y - minP.Y) * scale
+	//res := image.NewRGBA(image.Rect(0, 0, xLen, yLen))
+	//for y := 0; y < maxP.Y; y++ {
+	//	for x := 0; x < maxP.X; x++ {
+	//		c := img.At(x, y)
+	//		xS := x * scale
+	//		yS := y * scale
+	//		draw.Draw(res, image.Rect(xS, yS, xS+scale, yS+scale), &image.Uniform{C: c}, image.Point{}, draw.Src)
+	//	}
+	//}
+	//return res
+}
+
+func ComposeImage(imags []*image.RGBA, blockSize int, rowCount int) *image.RGBA {
+	w := rowCount * blockSize
+	colCount := len(imags) / rowCount
+	if len(imags)%rowCount != 0 {
+		colCount += 1
+	}
+	h := colCount * blockSize
+	res := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i, img := range imags {
+		scaleFactor := blockSize / imags[0].Bounds().Max.X
+		img = ScaleImage(img, scaleFactor).(*image.RGBA)
+		x := (i % rowCount) * blockSize
+		y := (i / rowCount) * blockSize
+		draw.Draw(res, image.Rect(x, y, x+blockSize, y+blockSize), img, image.Point{}, draw.Src)
+	}
+	//withGrid := true
+	// 画竖线
+	for i := 1; i < rowCount; i++ {
+		x := i * blockSize
+		draw.Draw(res, image.Rect(x, 0, x+1, h), image.NewUniform(color.White), image.Point{}, draw.Src)
+	}
+	// 画横线
+	for i := 1; i < colCount; i++ {
+		y := i * blockSize
+		draw.Draw(res, image.Rect(0, y, w, y+1), image.NewUniform(color.White), image.Point{}, draw.Src)
+	}
+	return res
+}
+
+func DrawBg(nameTable []byte, patternTable []byte, attributeColorMaskFn AttributeColorMask, palette Palette) image.Image {
+	imgs := make([]*image.RGBA, 0, len(nameTable))
+	for tileIndex, patternIndex := range nameTable {
+		tileColorData := GetColorDataFromPatternTable(int(patternIndex), patternTable)
+		colorMaskByte := attributeColorMaskFn(tileIndex)
+		mergeRgbDataWithColorMaskByte(&tileColorData, colorMaskByte)
+		tileRGBData := tileColorData2RGBData2(&tileColorData, palette)
+		tileImage := convert2tileImage(&tileRGBData)
 		imgs = append(imgs, tileImage)
 	}
 	sc := image.NewRGBA(ScreenRec())
@@ -105,6 +184,90 @@ func GenBg(nameTable []byte, patternTable []byte, attributeTable []byte, palette
 		draw.Draw(sc, image.Rect(x, y, x+8, y+8), img, image.Point{}, draw.Src)
 	}
 	return sc
+}
+
+type Sprite struct {
+	X               int
+	Y               int
+	FlipVertical    bool
+	FlipHorizontal  bool
+	BehindBg        bool
+	OriginColorData *[8][8]byte
+	ColorData       *[8][8]byte
+	OriginImage     *image.RGBA
+	Image           *image.RGBA
+}
+
+func DrawSpritesTable(oam [256]byte, patternTable []byte, palette Palette) image.Image {
+	sprites := make([]*Sprite, 0, 64)
+	for i := 0; i < 256; i = i + 4 {
+		spriteData := [4]byte{oam[i], oam[i+1], oam[i+2], oam[i+3]}
+		sprites = append(sprites, drawSprite(spriteData, patternTable, palette))
+	}
+	return ComposeSprites(sprites)
+}
+func DrawSpritesInSC(screenImage *image.RGBA, oam [256]byte, patternTable []byte, palette Palette) image.Image {
+	sprites := make([]*Sprite, 0, 64)
+	for i := 0; i < 256; i = i + 4 {
+		spriteData := [4]byte{oam[i], oam[i+1], oam[i+2], oam[i+3]}
+		sprites = append(sprites, drawSprite(spriteData, patternTable, palette))
+	}
+	for _, sprite := range sprites {
+		draw.Draw(screenImage, image.Rect(sprite.X, sprite.Y, sprite.X+8, sprite.Y+8),
+			sprite.Image, image.Point{}, draw.Src)
+	}
+	return screenImage
+}
+
+func ComposeSprites(sprites []*Sprite) image.Image {
+	images := make([]*image.RGBA, 0, len(sprites))
+	for _, sprite := range sprites {
+		images = append(images, sprite.OriginImage)
+	}
+	return ComposeImage(images, 32, 8)
+}
+func drawSprite(spriteData [4]byte, patternTable []byte, palette Palette) *Sprite {
+	y := spriteData[0]
+	tileIndex := spriteData[1]
+	tileColorData := GetColorDataFromPatternTable(int(tileIndex), patternTable)
+	colorMaskByte := (spriteData[2] & 0b11) << 2
+
+	mergeRgbDataWithColorMaskByte(&tileColorData, colorMaskByte)
+	tileRGBData := tileColorData2RGBData2(&tileColorData, palette)
+
+	tileImage := convert2tileImage(&tileRGBData)
+	sprite := &Sprite{
+		X:               int(spriteData[3]),
+		Y:               int(y),
+		FlipVertical:    utils.IsSet(spriteData[2], 7),
+		FlipHorizontal:  utils.IsSet(spriteData[2], 6),
+		BehindBg:        true,
+		OriginColorData: &tileColorData,
+		OriginImage:     tileImage,
+	}
+	sprite.ColorData = Flip(*sprite.OriginColorData, sprite.FlipVertical, sprite.FlipHorizontal)
+	tileRGBData = tileColorData2RGBData2(sprite.ColorData, palette)
+	sprite.Image = convert2tileImage(&tileRGBData)
+	return sprite
+}
+
+func Flip(rgb [8][8]byte, flipVertical, flipHorizontal bool) *[8][8]byte {
+	if flipVertical {
+		for y := 0; y < 8; y++ {
+			for x := 0; x < 4; x++ {
+				rgb[y][x], rgb[y][7-x] = rgb[y][7-x], rgb[y][x]
+			}
+		}
+	}
+	if flipHorizontal {
+		for x := 0; x < 8; x++ {
+			for y := 0; y < 4; y++ {
+				rgb[y][x], rgb[7-y][x] = rgb[7-y][x], rgb[y][x]
+			}
+		}
+	}
+	return &rgb
+
 }
 func GenPalette(rgbData []uint32) {
 	blockSize := 32
@@ -137,10 +300,4 @@ func GenPalette(rgbData []uint32) {
 	}
 	Save2jpeg("palette", m)
 
-}
-func DrawPatternTable(patternTable []byte) {
-	for patternIndex := 0; patternIndex < 16; patternIndex++ {
-		//tileColorData := getColorDataFromPatternTable(patternIndex, patternTable)
-
-	}
 }

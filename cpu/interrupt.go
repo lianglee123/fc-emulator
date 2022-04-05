@@ -23,7 +23,7 @@ func (c *CPU) ExecIRQ() {
 }
 
 func (c *CPU) ExecNMI() {
-	fmt.Println("EXECUTE NMI")
+	//fmt.Println("EXECUTE NMI")
 	c.StackPushWord(c.register.PC)
 	c.StackPush((c.register.P | uint8(FLAG_U)) | (^uint8(FLAG_B)))
 	c.register.setFlag(FLAG_I, true)

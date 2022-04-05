@@ -2,6 +2,7 @@ package main
 
 import (
 	"fc-emulator/emu"
+	"fc-emulator/pad"
 	"fc-emulator/ppu"
 	"fc-emulator/rom"
 	"fc-emulator/utils"
@@ -11,6 +12,7 @@ import (
 	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	"image"
 	"log"
@@ -43,10 +45,39 @@ func PaletteTabItem(name string, getPaletteFn func() ppu.Palette) *container.Tab
 
 func GameScreenTabItem(screenFn func() image.Image) *container.TabItem {
 	raster := canvas.NewRaster(func(w, h int) image.Image {
-		//fmt.Println(time.Now(), "w", w, "h: ", h)
 		return screenFn()
 	})
 	return container.NewTabItem("Game", raster)
+}
+
+func SpriteTableTabItem(source func() image.Image) *container.TabItem {
+	raster := canvas.NewRaster(func(w, h int) image.Image {
+		fmt.Println("sprites refresh")
+		return source()
+	})
+	return container.NewTabItem("Sprite Table", raster)
+}
+
+func SpriteTabItem(source func() image.Image) *container.TabItem {
+	raster := canvas.NewRaster(func(w, h int) image.Image {
+		fmt.Println("sprites refresh")
+		return source()
+	})
+	return container.NewTabItem("Sprites", raster)
+}
+
+func BgPatternTableTabItem(source func() image.Image) *container.TabItem {
+	raster := canvas.NewRaster(func(w, h int) image.Image {
+		return source()
+	})
+	return container.NewTabItem("Bg Pattern", raster)
+}
+
+func SpritePatternTableTabItem(source func() image.Image) *container.TabItem {
+	raster := canvas.NewRaster(func(w, h int) image.Image {
+		return ppu.ScaleImage(source(), 4)
+	})
+	return container.NewTabItem("Sprite Pattern", raster)
 }
 
 func RomInfoTabItem(nesRom *rom.NesRom) *container.TabItem {
@@ -93,22 +124,70 @@ func PPUCtrlStatusTabItem(pu *ppu.PPUImpl) *container.TabItem {
 func main() {
 	emulator := setupEmulator()
 	pu := emulator.PPU.(*ppu.PPUImpl)
-
-	screenTabItem := GameScreenTabItem(pu.Render)
+	gameTabItem := GameScreenTabItem(pu.Render)
 	bgPaletteTabItem := PaletteTabItem("BG Palette", pu.BgPalette)
 	spritePaletteTabItem := PaletteTabItem("Sprite Palette", pu.SpritePalette)
+	bgPatternTableTabItem := BgPatternTableTabItem(pu.DrawBGPatternTable)
+	spritePatternTableTabItem := SpritePatternTableTabItem(pu.DrawSpritePatternTable)
+	spriteTableTabItem := SpriteTableTabItem(pu.DrawSpriteTable)
+	spriteTabItem := SpriteTabItem(pu.RenderSprites)
 
 	myApp := app.New()
 	win := myApp.NewWindow("Raster")
+
 	tabs := container.NewAppTabs(
-		screenTabItem,
+		gameTabItem,
+		spriteTabItem,
+		spriteTableTabItem,
 		bgPaletteTabItem,
 		spritePaletteTabItem,
 		RomInfoTabItem(emulator.Rom),
 		PPUCtrlStatusTabItem(pu),
+		bgPatternTableTabItem,
+		spritePatternTableTabItem,
 	)
+
+	win.Canvas().(desktop.Canvas).SetOnKeyDown(func(event *fyne.KeyEvent) {
+		if tabs.Selected() != gameTabItem {
+			return
+		}
+		keyMap := map[fyne.KeyName]pad.ButtonType{
+			fyne.KeyW: pad.BUTTON_UP,
+			fyne.KeyS: pad.BUTTON_DOWN,
+			fyne.KeyA: pad.BUTTON_LEFT,
+			fyne.KeyD: pad.BUTTON_RIGHT,
+			fyne.KeyJ: pad.BUTTON_A,
+			fyne.KeyK: pad.BUTTON_B,
+			fyne.KeyU: pad.BUTTON_SELECT,
+			fyne.KeyI: pad.BUTTON_START,
+		}
+		if button, ok := keyMap[event.Name]; ok {
+			emulator.Pad1.UpdateButton(button, true)
+		}
+	})
+	win.Canvas().(desktop.Canvas).SetOnKeyUp(func(event *fyne.KeyEvent) {
+		if tabs.Selected() != gameTabItem {
+			return
+		}
+		keyMap := map[fyne.KeyName]pad.ButtonType{
+			fyne.KeyW: pad.BUTTON_UP,
+			fyne.KeyS: pad.BUTTON_DOWN,
+			fyne.KeyA: pad.BUTTON_LEFT,
+			fyne.KeyD: pad.BUTTON_RIGHT,
+			fyne.KeyJ: pad.BUTTON_A,
+			fyne.KeyK: pad.BUTTON_B,
+			fyne.KeyU: pad.BUTTON_SELECT,
+			fyne.KeyI: pad.BUTTON_START,
+		}
+		if button, ok := keyMap[event.Name]; ok {
+			emulator.Pad1.UpdateButton(button, false)
+		}
+	})
+
 	tabs.SetTabLocation(container.TabLocationLeading)
-	emulator.FrameCallback = screenTabItem.Content.Refresh
+	emulator.FrameCallback = func() {
+		tabs.Refresh()
+	}
 	go func() {
 		emulator.Start()
 	}()

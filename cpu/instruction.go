@@ -672,12 +672,6 @@ func (c *CPU) BNE(operandAddr uint16) {
 func (c *CPU) LDA(operandAddr uint16) {
 	c.register.A = c.memo.Read(operandAddr)
 	c.register.setNZFlag(c.register.A)
-	if operandAddr == 0x40 {
-		println("------------LDA------------")
-		println(c.memo.Read(operandAddr))
-		println(c.memo.Read(operandAddr + 1))
-		println(c.memo.Read(operandAddr - 1))
-	}
 }
 
 func (c *CPU) BCC(operandAddr uint16) {

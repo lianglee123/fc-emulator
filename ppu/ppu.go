@@ -4,12 +4,9 @@ import (
 	"fc-emulator/rom"
 	"fc-emulator/utils"
 	"fmt"
-	"fyne.io/fyne/v2/app"
-	"fyne.io/fyne/v2/canvas"
 	"image"
 	"image/color"
 	"image/draw"
-	"strconv"
 )
 
 type PPU interface {
@@ -37,13 +34,6 @@ func NewPPU(rom *rom.NesRom) PPU {
 	}
 }
 
-func (p *PPUImpl) DrawBGPatternTable() {
-	p.Register.PPUCTRL.BackgroundPatternTableAddress()
-}
-
-func (p *PPUImpl) DrawSpritePatternTable() {
-
-}
 func (p *PPUImpl) CanInterrupt() bool {
 	return p.Register.PPUCTRL.CanGenerateNMIBreakAtStartOfVerticalBlankingInterval()
 }
@@ -76,6 +66,28 @@ func (p *PPUImpl) ReadForCPU(addr uint16) byte {
 		panic("wrong ppu register for cpu")
 	}
 }
+
+func (p *PPUImpl) DrawSpriteTable() image.Image {
+	return DrawSpritesTable(p.OAM, p.spritePatternTable(), p.SpritePalette())
+}
+
+func (p *PPUImpl) DrawSprite() image.Image {
+	return DrawSpritesTable(p.OAM, p.spritePatternTable(), p.SpritePalette())
+}
+
+func (p *PPUImpl) DrawSpritePatternTable() image.Image {
+	patternTable := p.spritePatternTable()
+	bgPalette := p.BgPalette()
+	attributeColorMaskFn := func(tileIndex int) byte {
+		return 0b00 << 2
+	}
+	return DrawPatternTable(patternTable, attributeColorMaskFn, bgPalette)
+}
+
+func DrawSprite() {
+
+}
+
 func (p *PPUImpl) EnterVblank() {
 	v := p.Register.PPUSTATUS
 	v |= 0b10000000 // set 「v」 flag
@@ -110,11 +122,12 @@ func (p *PPUImpl) readData() byte {
 	}
 
 }
+
 func (p *PPUImpl) writeData(value byte) {
 	addr := p.Register.PPUADDR.Value()
 	p.incrementPPUADDR()
 	if addr <= 0x1FFF {
-		panic("attempt to write chr rom space")
+		panic(fmt.Sprintf("attempt to write chr rom space: %4X, %X", addr, value))
 	} else if addr >= 0x2000 && addr <= 0x2FFF {
 		p.Memo.Write(addr, value)
 	} else if addr >= 0x3000 && addr <= 0x3EFF {
@@ -129,6 +142,18 @@ func (p *PPUImpl) writeData(value byte) {
 	}
 }
 
+const (
+	PPUCTRL_ADDR uint16 = 0x2000 + iota
+	PPUMASK_ADDR
+	PPUSTATUS_ADDR
+	OAMADDR_ADDR
+	OAMDATA_ADDR
+	PPUSCROLL_ADDR
+	PPUADDR_ADDR
+	PPUDATA_ADDR
+	OAMDMA_ADDR uint16 = 0x4014
+)
+
 func (p *PPUImpl) WriteForCPU(addr uint16, val byte) {
 	if addr == 0x4014 {
 		p.Register.OAMDMA = val // DMA 4014直写，暂时不实现
@@ -138,7 +163,7 @@ func (p *PPUImpl) WriteForCPU(addr uint16, val byte) {
 	addr = 0x2000 + addr&0b111
 	switch addr {
 	case 0x2000:
-		fmt.Printf("write ppu  contrl %s \n", strconv.FormatUint(uint64(val), 2))
+		fmt.Printf("write ppu  contrl 0b%08b \n", val)
 		p.Register.PPUCTRL = PPUCTRL(val)
 	case 0x2001:
 		p.Register.PPUMASK = val
@@ -167,9 +192,16 @@ func (p *PPUImpl) SetOAM(values []byte) {
 }
 
 func (p *PPUImpl) Render() image.Image {
-	return p.renderBg()
+	bg := p.renderBg()
+	return p.renderSprites(bg.(*image.RGBA))
 }
 
+func (p *PPUImpl) renderSprites(sc *image.RGBA) image.Image {
+	return DrawSpritesInSC(sc, p.OAM, p.spritePatternTable(), p.SpritePalette())
+}
+func (p *PPUImpl) RenderSprites() image.Image {
+	return DrawSpritesInSC(NewScreenImage(), p.OAM, p.spritePatternTable(), p.SpritePalette())
+}
 func (p *PPUImpl) DrawBGPalette() image.Image {
 	return p.BgPalette().Draw()
 }
@@ -183,12 +215,37 @@ func (p *PPUImpl) bgPatternTable() []byte {
 	endAddr := startAddr + uint16(4*utils.Kb)
 	return p.Memo.Data[startAddr:endAddr]
 }
+func (p *PPUImpl) spritePatternTable() []byte {
+	startAddr := p.Register.PPUCTRL.SpritePatternTableAddress()
+	endAddr := startAddr + uint16(4*utils.Kb)
+	return p.Memo.Data[startAddr:endAddr]
+}
+
+type AttributeColorMask func(tileIndex int) byte
+
 func (p *PPUImpl) renderBg() image.Image {
 	patternTable := p.bgPatternTable()
 	bgPalette := p.BgPalette()
 	nameTable := p.nameTable()
 	attributeTable := p.attributeTable()
-	return GenBg(nameTable, attributeTable, patternTable, bgPalette)
+	attributeColorMaskFn := func(tileIndex int) byte {
+		attributeIndex := TileIndex2attributeIndex(tileIndex)
+		part := TileIndex2attributePart(tileIndex)
+		return GetPixelDataFromAttributeTable(attributeIndex, part, attributeTable)
+	}
+	return DrawBg(nameTable, patternTable, attributeColorMaskFn, bgPalette)
+}
+
+func (p *PPUImpl) DrawBGPatternTable() image.Image {
+	patternTable := p.bgPatternTable()
+	bgPalette := p.BgPalette()
+	attributeColorMaskFn := func(tileIndex int) byte {
+		return 0b00 << 2
+		//return 0b01  << 2
+		//return 0b10  << 2
+		//return 0b11  << 2
+	}
+	return DrawPatternTable(patternTable, attributeColorMaskFn, bgPalette)
 }
 
 func (p *PPUImpl) BgPalette() Palette {
@@ -209,17 +266,17 @@ func (p *PPUImpl) SpritePalette() Palette {
 	_data[0] = p.Memo.Data[0x3F00]
 	return NewPalette(_data)
 }
-
 func (p *PPUImpl) nameTable() []byte {
 	baseAddr := p.Register.PPUCTRL.NameTableBaseAddress()
 	return p.Memo.Data[baseAddr : baseAddr+960]
 }
+
 func (p *PPUImpl) attributeTable() []byte {
 	baseAddr := p.Register.PPUCTRL.NameTableBaseAddress()
 	return p.Memo.Data[baseAddr+960 : baseAddr+1024]
 }
 
-func tileImage(tileRgb *[8][8]color.RGBA) *image.RGBA {
+func convert2tileImage(tileRgb *[8][8]color.RGBA) *image.RGBA {
 	m := image.NewRGBA(image.Rect(0, 0, 8, 8))
 	for y := 0; y < 8; y++ {
 		for x := 0; x < 8; x++ {
@@ -237,20 +294,6 @@ func (c Color) RGBA() (r, g, b, a uint32) {
 	b = uint32(c & 0xFF)
 	a = 0xFFFF
 	return
-}
-
-func ShowPicture(imageFileName string) {
-	myApp := app.New()
-	w := myApp.NewWindow("Image")
-
-	//image := canvas.NewImageFromResource(theme.FyneLogo())
-	// image := canvas.NewImageFromURI(uri)
-	// image := canvas.NewImageFromImage(src)
-	// image := canvas.NewImageFromReader(reader, name)
-	_image := canvas.NewImageFromFile(imageFileName)
-	_image.FillMode = canvas.ImageFillOriginal
-	w.SetContent(_image)
-	w.ShowAndRun()
 }
 
 func uint32ToRgb(v uint32) color.RGBA {
@@ -315,16 +358,12 @@ func mergeRgbDataWithColorMaskByte(rgbData *[8][8]byte, colorMaskByte byte) {
 	}
 }
 func getColorMaskDataFromAttributeTable(tileIndex int, attributeTable []byte) byte {
-	//return 0b00  << 2
-	//return 0b01  << 2
-	return 0b10 << 2
-	//return 0b11  << 2
-	//attributeIndex := tileIndex2attributeIndex(tileIndex)
-	//part := tileIndex2attributePart(tileIndex)
-	//return getPixelDataFromAttributeTable(attributeIndex, part, attributeTable)
+	attributeIndex := TileIndex2attributeIndex(tileIndex)
+	part := TileIndex2attributePart(tileIndex)
+	return GetPixelDataFromAttributeTable(attributeIndex, part, attributeTable)
 }
 
-func getPixelDataFromAttributeTable(attributeIndex int, blockPart AttributeBlockPart, attributeTable []byte) byte {
+func GetPixelDataFromAttributeTable(attributeIndex int, blockPart AttributeBlockPart, attributeTable []byte) byte {
 	value := attributeTable[attributeIndex]
 	switch blockPart {
 	case TOP_LEFT_PART:
@@ -340,7 +379,7 @@ func getPixelDataFromAttributeTable(attributeIndex int, blockPart AttributeBlock
 	}
 }
 
-func getColorDataFromPatternTable(patternIndex int, patternTable []byte) [8][8]byte {
+func GetColorDataFromPatternTable(patternIndex int, patternTable []byte) [8][8]byte {
 	//fmt.Println("****************************")
 	patternData := patternTable[patternIndex*16 : patternIndex*16+16]
 	bit0Data := patternData[:8]
@@ -402,13 +441,13 @@ func attributePoint2Index(p Point) int {
 	return p.X + p.Y*8
 }
 
-func tileIndex2attributeIndex(tileIndex int) int {
+func TileIndex2attributeIndex(tileIndex int) int {
 	tilePoint := tileIndex2Point(tileIndex)
 	attributePoint := tilePoint2attributePoint(tilePoint)
 	return attributePoint2Index(attributePoint)
 }
 
-func tileIndex2attributePart(tileIndex int) AttributeBlockPart {
+func TileIndex2attributePart(tileIndex int) AttributeBlockPart {
 	tilePoint := tileIndex2Point(tileIndex)
 	return getAttributeBlockPart(tilePoint)
 }

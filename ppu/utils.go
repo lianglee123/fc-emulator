@@ -269,7 +269,15 @@ func Flip(rgb [8][8]byte, flipVertical, flipHorizontal bool) *[8][8]byte {
 	return &rgb
 
 }
-func GenPalette(rgbData []uint32) {
+
+func SystemPaletteColor() *image.RGBA {
+	c := make([]uint32, 64, 64)
+	for i := 0; i < len(AllColor); i++ {
+		c[i] = AllColor[i]
+	}
+	return GenPalette(c)
+}
+func GenPalette(rgbData []uint32) *image.RGBA {
 	blockSize := 32
 	m := image.NewRGBA(image.Rect(0, 0, 16*blockSize, 4*blockSize))
 	count := 0
@@ -298,6 +306,7 @@ func GenPalette(rgbData []uint32) {
 			//}
 		}
 	}
-	Save2jpeg("palette", m)
+	return m
+	//Save2jpeg("palette", m)
 
 }

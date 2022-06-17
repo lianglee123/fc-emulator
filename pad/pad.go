@@ -59,7 +59,7 @@ func (p *DefaultPad) ReadForCPU() byte {
 	} else {
 		res := (p.data >> p.buttonIndex) & 0x01
 		p.buttonIndex += 1
-		fmt.Printf("read pad 0x%b\n", res)
+		//fmt.Printf("read pad 0x%b\n", res)
 		return res
 	}
 }

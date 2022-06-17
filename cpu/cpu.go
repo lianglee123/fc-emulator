@@ -85,7 +85,8 @@ func (c *CPU) ExecuteOneInstructionNoDebug() error {
 	c.increasePC()
 	instruction := instructionTable[opcodeNumber]
 	if instruction == nil {
-		return errors.New(fmt.Sprintf("opcode 0x%02X is not support", opcodeNumber))
+		panic(fmt.Sprintf("opcode 0x%02X is not support", opcodeNumber))
+		return nil
 	}
 	addr := c.Addressing(instruction.Mode)
 	instruction.Handle(c, addr)

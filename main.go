@@ -47,6 +47,7 @@ func GameScreenTabItem(screenFn func() image.Image) *container.TabItem {
 	raster := canvas.NewRaster(func(w, h int) image.Image {
 		return screenFn()
 	})
+	raster.ScaleMode = canvas.ImageScalePixels
 	return container.NewTabItem("Game", raster)
 }
 
@@ -55,6 +56,7 @@ func SpriteTableTabItem(source func() image.Image) *container.TabItem {
 		fmt.Println("sprites refresh")
 		return source()
 	})
+	raster.ScaleMode = canvas.ImageScalePixels
 	return container.NewTabItem("Sprite Table", raster)
 }
 
@@ -63,6 +65,15 @@ func SpriteTabItem(source func() image.Image) *container.TabItem {
 		fmt.Println("sprites refresh")
 		return source()
 	})
+	raster.ScaleMode = canvas.ImageScalePixels
+	return container.NewTabItem("Sprites", raster)
+}
+
+func PaletteColorTabItem() *container.TabItem {
+	raster := canvas.NewRaster(func(w, h int) image.Image {
+		return ppu.SystemPaletteColor()
+	})
+	raster.ScaleMode = canvas.ImageScalePixels
 	return container.NewTabItem("Sprites", raster)
 }
 
@@ -70,13 +81,15 @@ func BgPatternTableTabItem(source func() image.Image) *container.TabItem {
 	raster := canvas.NewRaster(func(w, h int) image.Image {
 		return source()
 	})
+	raster.ScaleMode = canvas.ImageScalePixels
 	return container.NewTabItem("Bg Pattern", raster)
 }
 
 func SpritePatternTableTabItem(source func() image.Image) *container.TabItem {
 	raster := canvas.NewRaster(func(w, h int) image.Image {
-		return ppu.ScaleImage(source(), 4)
+		return source()
 	})
+	raster.ScaleMode = canvas.ImageScalePixels
 	return container.NewTabItem("Sprite Pattern", raster)
 }
 
@@ -108,6 +121,7 @@ CanGenerateNMIBreakAtStartOfVerticalBlankingInterval: %v`,
 		ppuCtrl.CanGenerateNMIBreakAtStartOfVerticalBlankingInterval())
 	return msg
 }
+
 func PPUCtrlStatusTabItem(pu *ppu.PPUImpl) *container.TabItem {
 	txtWidget := widget.NewTextGridFromString(ctrlStatusStr(pu.Register.PPUCTRL))
 	go func() {
@@ -145,6 +159,7 @@ func main() {
 		PPUCtrlStatusTabItem(pu),
 		bgPatternTableTabItem,
 		spritePatternTableTabItem,
+		PaletteColorTabItem(),
 	)
 
 	win.Canvas().(desktop.Canvas).SetOnKeyDown(func(event *fyne.KeyEvent) {

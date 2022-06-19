@@ -22,6 +22,7 @@ func (c *CPU) ExecIRQ() {
 	c.register.PC = c.memo.ReadWord(IV_IRQ)
 }
 
+// 进入中断后，由中断handler负责pop 原来的pc, 返回到原来的执行链路上。
 func (c *CPU) ExecNMI() {
 	//fmt.Println("EXECUTE NMI")
 	c.StackPushWord(c.register.PC)

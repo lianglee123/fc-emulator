@@ -6,9 +6,11 @@ import (
 )
 
 type Instruction struct {
-	Code   opcode.Code
-	Mode   addressing.Mode
-	Handle func(cpu *CPU, addr uint16)
+	Code           opcode.Code
+	Mode           addressing.Mode
+	Handle         func(cpu *CPU, addr uint16)
+	Cycle          int
+	CheckPageCross bool //  if checkPageCross is true, add 1 cycle when
 }
 
 func codeCount() int {
@@ -28,356 +30,367 @@ func codeCount() int {
 var instructionTable = [256]*Instruction{
 
 	// Sets the program counter to the address specified by the operand.
-	0x4C: {opcode.JMP, addressing.ABS, (*CPU).JMP},
-	0x6C: {opcode.JMP, addressing.IND, (*CPU).JMP},
+	0x4C: {opcode.JMP, addressing.ABS, (*CPU).JMP, 3, false},
+	0x6C: {opcode.JMP, addressing.IND, (*CPU).JMP, 5, false},
 
 	// Loads a byte of memory into the X register setting the zero and negative flags as appropriate.
-	0xA2: {opcode.LDX, addressing.IMM, (*CPU).LDX},
-	0xA6: {opcode.LDX, addressing.ZPG, (*CPU).LDX},
-	0xB6: {opcode.LDX, addressing.ZPY, (*CPU).LDX},
-	0xAE: {opcode.LDX, addressing.ABS, (*CPU).LDX},
-	0xBE: {opcode.LDX, addressing.ABY, (*CPU).LDX},
+	0xA2: {opcode.LDX, addressing.IMM, (*CPU).LDX, 2, false},
+	0xA6: {opcode.LDX, addressing.ZPG, (*CPU).LDX, 3, false},
+	0xB6: {opcode.LDX, addressing.ZPY, (*CPU).LDX, 4, false},
+	0xAE: {opcode.LDX, addressing.ABS, (*CPU).LDX, 4, false},
+	0xBE: {opcode.LDX, addressing.ABY, (*CPU).LDX, 4, true /* +1 if page crossed */},
 
 	// Stores the contents of the X register into memory.
-	0x86: {opcode.STX, addressing.ZPG, (*CPU).STX},
-	0x96: {opcode.STX, addressing.ZPY, (*CPU).STX},
-	0x8E: {opcode.STX, addressing.ABS, (*CPU).STX},
+	0x86: {opcode.STX, addressing.ZPG, (*CPU).STX, 3, false},
+	0x96: {opcode.STX, addressing.ZPY, (*CPU).STX, 4, false},
+	0x8E: {opcode.STX, addressing.ABS, (*CPU).STX, 4, false},
 
-	0x84: {opcode.STY, addressing.ZPG, (*CPU).STY},
-	0x94: {opcode.STY, addressing.ZPX, (*CPU).STY},
-	0x8C: {opcode.STY, addressing.ABS, (*CPU).STY},
+	0x84: {opcode.STY, addressing.ZPG, (*CPU).STY, 3, false},
+	0x94: {opcode.STY, addressing.ZPX, (*CPU).STY, 4, false},
+	0x8C: {opcode.STY, addressing.ABS, (*CPU).STY, 4, false},
 
 	// Stores the contents of the accumulator into memory.
-	0x85: {opcode.STA, addressing.ZPG, (*CPU).STA},
-	0x95: {opcode.STA, addressing.ZPX, (*CPU).STA},
-	0x8D: {opcode.STA, addressing.ABS, (*CPU).STA},
-	0x9D: {opcode.STA, addressing.ABX, (*CPU).STA},
-	0x99: {opcode.STA, addressing.ABY, (*CPU).STA},
-	0x81: {opcode.STA, addressing.INX, (*CPU).STA},
-	0x91: {opcode.STA, addressing.INY, (*CPU).STA},
+	0x85: {opcode.STA, addressing.ZPG, (*CPU).STA, 3, false},
+	0x95: {opcode.STA, addressing.ZPX, (*CPU).STA, 4, false},
+	0x8D: {opcode.STA, addressing.ABS, (*CPU).STA, 4, false},
+	0x9D: {opcode.STA, addressing.ABX, (*CPU).STA, 5, false},
+	0x99: {opcode.STA, addressing.ABY, (*CPU).STA, 5, false},
+	0x81: {opcode.STA, addressing.INX, (*CPU).STA, 6, false},
+	0x91: {opcode.STA, addressing.INY, (*CPU).STA, 6, false},
 
 	// The JSR instruction pushes the address (minus one) of the return point on
 	// to the stack and then sets the program counter to the target memory address.
-	0x20: {opcode.JSR, addressing.ABS, (*CPU).JSR},
+	0x20: {opcode.JSR, addressing.ABS, (*CPU).JSR, 6, false},
 
 	// Set the carry flag to one.
-	0x38: {opcode.SEC, addressing.IMP, (*CPU).SEC},
+	0x38: {opcode.SEC, addressing.IMP, (*CPU).SEC, 2, false},
 
 	// If the carry flag is set then add the relative displacement to
 	// the program counter to cause a branch to a new location.
-	0xB0: {opcode.BCS, addressing.REL, (*CPU).BCS},
+	0xB0: {opcode.BCS, addressing.REL, (*CPU).BCS, 2, false},
 
 	// Set the carry flag to zero.
-	0x18: {opcode.CLC, addressing.IMP, (*CPU).CLC},
+	0x18: {opcode.CLC, addressing.IMP, (*CPU).CLC, 2, false},
 
 	// If the carry flag is clear then add the relative displacement to the program
 	// counter to cause a branch to a new location.
-	0x90: {opcode.BCC, addressing.REL, (*CPU).BCC},
+	0x90: {opcode.BCC, addressing.REL, (*CPU).BCC, 2, true /* +1 if branch succeeds, +2 if to a new page)*/},
 
 	// Loads a byte of memory into the accumulator setting the zero and
 	// negative flags as appropriate.
-	0xA9: {opcode.LDA, addressing.IMM, (*CPU).LDA},
-	0xA5: {opcode.LDA, addressing.ZPG, (*CPU).LDA},
-	0xB5: {opcode.LDA, addressing.ZPX, (*CPU).LDA},
-	0xAD: {opcode.LDA, addressing.ABS, (*CPU).LDA},
-	0xBD: {opcode.LDA, addressing.ABX, (*CPU).LDA},
-	0xB9: {opcode.LDA, addressing.ABY, (*CPU).LDA},
-	0xA1: {opcode.LDA, addressing.INX, (*CPU).LDA},
-	0xB1: {opcode.LDA, addressing.INY, (*CPU).LDA},
+	0xA9: {opcode.LDA, addressing.IMM, (*CPU).LDA, 2, false},
+	0xA5: {opcode.LDA, addressing.ZPG, (*CPU).LDA, 3, false},
+	0xB5: {opcode.LDA, addressing.ZPX, (*CPU).LDA, 4, false},
+	0xAD: {opcode.LDA, addressing.ABS, (*CPU).LDA, 4, false},
+	0xBD: {opcode.LDA, addressing.ABX, (*CPU).LDA, 4, true /* +1 if page crossed */},
+	0xB9: {opcode.LDA, addressing.ABY, (*CPU).LDA, 4, true /* +1 if page crossed */},
+	0xA1: {opcode.LDA, addressing.INX, (*CPU).LDA, 6, false},
+	0xB1: {opcode.LDA, addressing.INY, (*CPU).LDA, 5, true /* +1 if page crossed */},
 
 	// If the zero flag is set then add the relative displacement
 	// to the program counter to cause a branch to a new location.
-	0xF0: {opcode.BEQ, addressing.REL, (*CPU).BEQ},
+	0xF0: {opcode.BEQ, addressing.REL, (*CPU).BEQ, 2, true /* +1 if branch succeeds, +2 if to a new page) */},
 
 	// If the zero flag is clear then add the relative displacement to
 	// the program counter to cause a branch to a new location.
-	0xD0: {opcode.BNE, addressing.REL, (*CPU).BNE},
+	0xD0: {opcode.BNE, addressing.REL, (*CPU).BNE, 2, true /* +1 if branch succeeds, +2 if to a new page) */},
 
 	// This instructions is used to test if one or more bits are set in a target memory location.
 	// The mask pattern in A is ANDed with the value in memory to set or clear the zero flag,
 	// but the result is not kept.
 	// Bits 7 and 6 of the value from memory are copied into the N and V flags.
-	0x24: {opcode.BIT, addressing.ZPG, (*CPU).BIT},
-	0x2C: {opcode.BIT, addressing.ABS, (*CPU).BIT},
+	0x24: {opcode.BIT, addressing.ZPG, (*CPU).BIT, 3, false},
+	0x2C: {opcode.BIT, addressing.ABS, (*CPU).BIT, 4, false},
 
 	// If the overflow flag is set then add the relative displacement to
 	// the program counter to cause a branch to a new location.
-	0x70: {opcode.BVS, addressing.REL, (*CPU).BVS},
+	0x70: {opcode.BVS, addressing.REL, (*CPU).BVS, 2, true /* +1 if branch succeeds, +2 if to a new page) */},
 
 	// If the overflow flag is clear then add the relative displacement
 	// to the program counter to cause a branch to a new location.
-	0x50: {opcode.BVC, addressing.REL, (*CPU).BVC},
+	0x50: {opcode.BVC, addressing.REL, (*CPU).BVC, 2, true /* +1 if branch succeeds, +2 if to a new page) */},
 
 	// If the negative flag is clear then add the relative displacement
 	// to the program counter to cause a branch to a new location.
-	0x10: {opcode.BPL, addressing.REL, (*CPU).BPL},
+	0x10: {opcode.BPL, addressing.REL, (*CPU).BPL, 2, true /* +1 if branch succeeds, +2 if to a new page) */},
 
 	// The RTS instruction is used at the end of a subroutine to return
 	// to the calling routine. It pulls the program counter (minus one) from the stack.
-	0x60: {opcode.RTS, addressing.IMP, (*CPU).RTS},
+	0x60: {opcode.RTS, addressing.IMP, (*CPU).RTS, 6, false},
 
 	// Set the interrupt disable flag to one.
-	0x78: {opcode.SEI, addressing.IMP, (*CPU).SEI},
+	0x78: {opcode.SEI, addressing.IMP, (*CPU).SEI, 2, false},
 
 	// Set the decimal mode flag to one.
-	0xF8: {opcode.SED, addressing.IMP, (*CPU).SED},
+	0xF8: {opcode.SED, addressing.IMP, (*CPU).SED, 2, false},
 
 	// Pushes a copy of the status flags on to the stack.
-	0x08: {opcode.PHP, addressing.IMP, (*CPU).PHP},
+	0x08: {opcode.PHP, addressing.IMP, (*CPU).PHP, 3, false},
 
 	// Pulls an 8 bit value from the stack and into the accumulator.
 	// The zero and negative flags are set as appropriate.
-	0x68: {opcode.PLA, addressing.IMP, (*CPU).PLA},
+	0x68: {opcode.PLA, addressing.IMP, (*CPU).PLA, 4, false},
 
 	// A logical AND is performed, bit by bit, on the accumulator contents
 	// using the contents of a byte of memory.
-	0x29: {opcode.AND, addressing.IMM, (*CPU).AND},
-	0x25: {opcode.AND, addressing.ZPG, (*CPU).AND},
-	0x35: {opcode.AND, addressing.ZPX, (*CPU).AND},
-	0x2D: {opcode.AND, addressing.ABS, (*CPU).AND},
-	0x3D: {opcode.AND, addressing.ABX, (*CPU).AND},
-	0x39: {opcode.AND, addressing.ABY, (*CPU).AND},
-	0x21: {opcode.AND, addressing.INX, (*CPU).AND},
-	0x31: {opcode.AND, addressing.INY, (*CPU).AND},
+	0x29: {opcode.AND, addressing.IMM, (*CPU).AND, 2, false},
+	0x25: {opcode.AND, addressing.ZPG, (*CPU).AND, 3, false},
+	0x35: {opcode.AND, addressing.ZPX, (*CPU).AND, 4, false},
+	0x2D: {opcode.AND, addressing.ABS, (*CPU).AND, 4, false},
+	0x3D: {opcode.AND, addressing.ABX, (*CPU).AND, 4, true /* +1 if page crossed */},
+	0x39: {opcode.AND, addressing.ABY, (*CPU).AND, 4, true /* +1 if page crossed */},
+	0x21: {opcode.AND, addressing.INX, (*CPU).AND, 6, false},
+	0x31: {opcode.AND, addressing.INY, (*CPU).AND, 5, true /* +1 if page crossed */},
 
 	// This instruction compares the contents of the accumulator with another memory
 	// held value and sets the zero and carry flags as appropriate.
-	0xC9: {opcode.CMP, addressing.IMM, (*CPU).CMP},
-	0xC5: {opcode.CMP, addressing.ZPG, (*CPU).CMP},
-	0xD5: {opcode.CMP, addressing.ZPX, (*CPU).CMP},
-	0xCD: {opcode.CMP, addressing.ABS, (*CPU).CMP},
-	0xDD: {opcode.CMP, addressing.ABX, (*CPU).CMP},
-	0xD9: {opcode.CMP, addressing.ABY, (*CPU).CMP},
-	0xC1: {opcode.CMP, addressing.INX, (*CPU).CMP},
-	0xD1: {opcode.CMP, addressing.INY, (*CPU).CMP},
+	0xC9: {opcode.CMP, addressing.IMM, (*CPU).CMP, 2, false},
+	0xC5: {opcode.CMP, addressing.ZPG, (*CPU).CMP, 3, false},
+	0xD5: {opcode.CMP, addressing.ZPX, (*CPU).CMP, 4, false},
+	0xCD: {opcode.CMP, addressing.ABS, (*CPU).CMP, 4, false},
+	0xDD: {opcode.CMP, addressing.ABX, (*CPU).CMP, 4, true /* +1 if page crossed */},
+	0xD9: {opcode.CMP, addressing.ABY, (*CPU).CMP, 4, true /* +1 if page crossed */},
+	0xC1: {opcode.CMP, addressing.INX, (*CPU).CMP, 6, false},
+	0xD1: {opcode.CMP, addressing.INY, (*CPU).CMP, 5, true /* +1 if page crossed */},
 
 	// Sets the decimal mode flag to zero.
-	0xD8: {opcode.CLD, addressing.IMP, (*CPU).CLD},
+	0xD8: {opcode.CLD, addressing.IMP, (*CPU).CLD, 2, false},
 
 	// Pushes a copy of the accumulator on to the stack.
-	0x48: {opcode.PHA, addressing.IMP, (*CPU).PHA},
+	0x48: {opcode.PHA, addressing.IMP, (*CPU).PHA, 3, false},
 
 	// Pulls an 8 bit value from the stack and into the processor flags.
 	// The flags will take on new states as determined by the value pulled.
-	0x28: {opcode.PLP, addressing.IMP, (*CPU).PLP},
+	0x28: {opcode.PLP, addressing.IMP, (*CPU).PLP, 4, false},
 
 	// If the negative flag is set then add the relative displacement
 	// to the program counter to cause a branch to a new location.
-	0x30: {opcode.BMI, addressing.REL, (*CPU).BMI},
+	0x30: {opcode.BMI, addressing.REL, (*CPU).BMI, 2, true /* +1 if branch succeeds, +2 if to a new page) */},
 
 	// A,Z,N = A|M
 	// An inclusive OR is performed, bit by bit,
 	// on the accumulator contents using the contents of a byte of memory.
-	0x09: {opcode.ORA, addressing.IMM, (*CPU).ORA},
-	0x05: {opcode.ORA, addressing.ZPG, (*CPU).ORA},
-	0x15: {opcode.ORA, addressing.ZPX, (*CPU).ORA},
-	0x0D: {opcode.ORA, addressing.ABS, (*CPU).ORA},
-	0x1D: {opcode.ORA, addressing.ABX, (*CPU).ORA},
-	0x19: {opcode.ORA, addressing.ABY, (*CPU).ORA},
-	0x01: {opcode.ORA, addressing.INX, (*CPU).ORA},
-	0x11: {opcode.ORA, addressing.INY, (*CPU).ORA},
+	0x09: {opcode.ORA, addressing.IMM, (*CPU).ORA, 2, false},
+	0x05: {opcode.ORA, addressing.ZPG, (*CPU).ORA, 3, false},
+	0x15: {opcode.ORA, addressing.ZPX, (*CPU).ORA, 4, false},
+	0x0D: {opcode.ORA, addressing.ABS, (*CPU).ORA, 4, false},
+	0x1D: {opcode.ORA, addressing.ABX, (*CPU).ORA, 4, true /* +1 if page crossed */},
+	0x19: {opcode.ORA, addressing.ABY, (*CPU).ORA, 4, true /* +1 if page crossed */},
+	0x01: {opcode.ORA, addressing.INX, (*CPU).ORA, 6, false},
+	0x11: {opcode.ORA, addressing.INY, (*CPU).ORA, 5, true /* +1 if page crossed */},
 
 	// Clears the overflow flag.
-	0xB8: {opcode.CLV, addressing.IMP, (*CPU).CLV},
+	0xB8: {opcode.CLV, addressing.IMP, (*CPU).CLV, 2, false},
 
 	// An exclusive OR is performed, bit by bit,
 	// on the accumulator contents using the contents of a byte of memory.
-	0x49: {opcode.EOR, addressing.IMM, (*CPU).EOR},
-	0x45: {opcode.EOR, addressing.ZPG, (*CPU).EOR},
-	0x55: {opcode.EOR, addressing.ZPX, (*CPU).EOR},
-	0x4D: {opcode.EOR, addressing.ABS, (*CPU).EOR},
-	0x5D: {opcode.EOR, addressing.ABX, (*CPU).EOR},
-	0x59: {opcode.EOR, addressing.ABY, (*CPU).EOR},
-	0x41: {opcode.EOR, addressing.INX, (*CPU).EOR},
-	0x51: {opcode.EOR, addressing.INY, (*CPU).EOR},
+	0x49: {opcode.EOR, addressing.IMM, (*CPU).EOR, 2, false},
+	0x45: {opcode.EOR, addressing.ZPG, (*CPU).EOR, 3, false},
+	0x55: {opcode.EOR, addressing.ZPX, (*CPU).EOR, 4, false},
+	0x4D: {opcode.EOR, addressing.ABS, (*CPU).EOR, 4, false},
+	0x5D: {opcode.EOR, addressing.ABX, (*CPU).EOR, 4, true /* +1 if page crossed */},
+	0x59: {opcode.EOR, addressing.ABY, (*CPU).EOR, 4, true /* +1 if page crossed */},
+	0x41: {opcode.EOR, addressing.INX, (*CPU).EOR, 6, false},
+	0x51: {opcode.EOR, addressing.INY, (*CPU).EOR, 5, true /* +1 if page crossed */},
 
 	// This instruction adds the contents of a memory location to
 	// the accumulator together with the carry bit.
 	// If overflow occurs the carry bit is set, this enables multiple byte addition to be performed.
-	0x69: {opcode.ADC, addressing.IMM, (*CPU).ADC},
-	0x65: {opcode.ADC, addressing.ZPG, (*CPU).ADC},
-	0x75: {opcode.ADC, addressing.ZPX, (*CPU).ADC},
-	0x6D: {opcode.ADC, addressing.ABS, (*CPU).ADC},
-	0x7D: {opcode.ADC, addressing.ABX, (*CPU).ADC},
-	0x79: {opcode.ADC, addressing.ABY, (*CPU).ADC},
-	0x61: {opcode.ADC, addressing.INX, (*CPU).ADC},
-	0x71: {opcode.ADC, addressing.INY, (*CPU).ADC},
+	0x69: {opcode.ADC, addressing.IMM, (*CPU).ADC, 2, false},
+	0x65: {opcode.ADC, addressing.ZPG, (*CPU).ADC, 3, false},
+	0x75: {opcode.ADC, addressing.ZPX, (*CPU).ADC, 4, false},
+	0x6D: {opcode.ADC, addressing.ABS, (*CPU).ADC, 4, false},
+	0x7D: {opcode.ADC, addressing.ABX, (*CPU).ADC, 4, true /* +1 if page crossed */},
+	0x79: {opcode.ADC, addressing.ABY, (*CPU).ADC, 4, true /* +1 if page crossed */},
+	0x61: {opcode.ADC, addressing.INX, (*CPU).ADC, 6, false},
+	0x71: {opcode.ADC, addressing.INY, (*CPU).ADC, 5, true /* +1 if page crossed */},
 
-	0xA0: {opcode.LDY, addressing.IMM, (*CPU).LDY},
-	0xA4: {opcode.LDY, addressing.ZPG, (*CPU).LDY},
-	0xB4: {opcode.LDY, addressing.ZPX, (*CPU).LDY},
-	0xAC: {opcode.LDY, addressing.ABS, (*CPU).LDY},
-	0xBC: {opcode.LDY, addressing.ABX, (*CPU).LDY},
+	0xA0: {opcode.LDY, addressing.IMM, (*CPU).LDY, 2, false},
+	0xA4: {opcode.LDY, addressing.ZPG, (*CPU).LDY, 3, false},
+	0xB4: {opcode.LDY, addressing.ZPX, (*CPU).LDY, 4, false},
+	0xAC: {opcode.LDY, addressing.ABS, (*CPU).LDY, 4, false},
+	0xBC: {opcode.LDY, addressing.ABX, (*CPU).LDY, 4, true /* +1 if page crossed */},
 
 	// This instruction compares the contents of the Y register with another memory
 	// held value and sets the zero and carry flags as appropriate.
-	0xC0: {opcode.CPY, addressing.IMM, (*CPU).CPY},
-	0xC4: {opcode.CPY, addressing.ZPG, (*CPU).CPY},
-	0xCC: {opcode.CPY, addressing.ABS, (*CPU).CPY},
+	0xC0: {opcode.CPY, addressing.IMM, (*CPU).CPY, 2, false},
+	0xC4: {opcode.CPY, addressing.ZPG, (*CPU).CPY, 3, false},
+	0xCC: {opcode.CPY, addressing.ABS, (*CPU).CPY, 4, false},
 
 	// This instruction compares the contents of the X register with another
 	// memory held value and sets the zero and carry flags as appropriate.
-	0xE0: {opcode.CPX, addressing.IMM, (*CPU).CPX},
-	0xE4: {opcode.CPX, addressing.ZPG, (*CPU).CPX},
-	0xEC: {opcode.CPX, addressing.ABS, (*CPU).CPX},
+	0xE0: {opcode.CPX, addressing.IMM, (*CPU).CPX, 2, false},
+	0xE4: {opcode.CPX, addressing.ZPG, (*CPU).CPX, 3, false},
+	0xEC: {opcode.CPX, addressing.ABS, (*CPU).CPX, 4, false},
 
 	// This instruction subtracts the contents of a memory location to
 	// the accumulator together with the not of the carry
 	// bit. If overflow occurs the carry bit is clear, this enables
 	// multiple byte subtraction to be performed.
-	0xE9: {opcode.SBC, addressing.IMM, (*CPU).SBC},
-	0xEB: {opcode.SBC, addressing.IMM, (*CPU).SBC},
-	0xE5: {opcode.SBC, addressing.ZPG, (*CPU).SBC},
-	0xF5: {opcode.SBC, addressing.ZPX, (*CPU).SBC},
-	0xED: {opcode.SBC, addressing.ABS, (*CPU).SBC},
-	0xFD: {opcode.SBC, addressing.ABX, (*CPU).SBC},
-	0xF9: {opcode.SBC, addressing.ABY, (*CPU).SBC},
-	0xE1: {opcode.SBC, addressing.INX, (*CPU).SBC},
-	0xF1: {opcode.SBC, addressing.INY, (*CPU).SBC},
+	0xE9: {opcode.SBC, addressing.IMM, (*CPU).SBC, 2, false},
+	0xEB: {opcode.SBC, addressing.IMM, (*CPU).SBC, 2, false}, // this instruction not in 6502 guid
+	0xE5: {opcode.SBC, addressing.ZPG, (*CPU).SBC, 3, false},
+	0xF5: {opcode.SBC, addressing.ZPX, (*CPU).SBC, 4, false},
+	0xED: {opcode.SBC, addressing.ABS, (*CPU).SBC, 4, false},
+	0xFD: {opcode.SBC, addressing.ABX, (*CPU).SBC, 4, true /* +1 if page crossed */},
+	0xF9: {opcode.SBC, addressing.ABY, (*CPU).SBC, 4, true /* +1 if page crossed */},
+	0xE1: {opcode.SBC, addressing.INX, (*CPU).SBC, 6, false},
+	0xF1: {opcode.SBC, addressing.INY, (*CPU).SBC, 5, true /* +1 if page crossed */},
 
 	// Adds one to the Y register setting the zero and negative flags as appropriate
-	0xC8: {opcode.INY, addressing.IMP, (*CPU).INY},
+	0xC8: {opcode.INY, addressing.IMP, (*CPU).INY, 2, false},
 
 	// Adds one to the X register setting the zero and negative flags as appropriate.
-	0xE8: {opcode.INX, addressing.IMP, (*CPU).INX},
+	0xE8: {opcode.INX, addressing.IMP, (*CPU).INX, 2, false},
 
-	0x88: {opcode.DEY, addressing.IMP, (*CPU).DEY},
-	0xCA: {opcode.DEX, addressing.IMP, (*CPU).DEX},
+	0x88: {opcode.DEY, addressing.IMP, (*CPU).DEY, 2, false},
+	0xCA: {opcode.DEX, addressing.IMP, (*CPU).DEX, 2, false},
 
-	0xC6: {opcode.DEC, addressing.ZPG, (*CPU).DEC},
-	0xD6: {opcode.DEC, addressing.ZPX, (*CPU).DEC},
-	0xCE: {opcode.DEC, addressing.ABS, (*CPU).DEC},
-	0xDE: {opcode.DEC, addressing.ABX, (*CPU).DEC},
+	0xC6: {opcode.DEC, addressing.ZPG, (*CPU).DEC, 5, false},
+	0xD6: {opcode.DEC, addressing.ZPX, (*CPU).DEC, 6, false},
+	0xCE: {opcode.DEC, addressing.ABS, (*CPU).DEC, 6, false},
+	0xDE: {opcode.DEC, addressing.ABX, (*CPU).DEC, 7, false},
 
-	0xA8: {opcode.TAY, addressing.IMP, (*CPU).TAY},
-	0x98: {opcode.TYA, addressing.IMP, (*CPU).TYA},
+	0xA8: {opcode.TAY, addressing.IMP, (*CPU).TAY, 2, false},
+	0x98: {opcode.TYA, addressing.IMP, (*CPU).TYA, 2, false},
 
-	0xAA: {opcode.TAX, addressing.IMP, (*CPU).TAX},
-	0x8A: {opcode.TXA, addressing.IMP, (*CPU).TXA},
+	0xAA: {opcode.TAX, addressing.IMP, (*CPU).TAX, 2, false},
+	0x8A: {opcode.TXA, addressing.IMP, (*CPU).TXA, 2, false},
 
-	0xBA: {opcode.TSX, addressing.IMP, (*CPU).TSX},
-	0x9A: {opcode.TXS, addressing.IMP, (*CPU).TXS},
+	0xBA: {opcode.TSX, addressing.IMP, (*CPU).TSX, 2, false},
+	0x9A: {opcode.TXS, addressing.IMP, (*CPU).TXS, 2, false},
 
-	0x40: {opcode.RTI, addressing.IMP, (*CPU).RTI},
+	0x40: {opcode.RTI, addressing.IMP, (*CPU).RTI, 6, false},
 
-	0x4A: {opcode.LSR, addressing.IMP, (*CPU).LSRImp},
-	0x46: {opcode.LSR, addressing.ZPG, (*CPU).LSR},
-	0x56: {opcode.LSR, addressing.ZPX, (*CPU).LSR},
-	0x4E: {opcode.LSR, addressing.ABS, (*CPU).LSR},
-	0x5E: {opcode.LSR, addressing.ABX, (*CPU).LSR},
+	0x4A: {opcode.LSR, addressing.IMP, (*CPU).LSRImp, 2, false},
+	0x46: {opcode.LSR, addressing.ZPG, (*CPU).LSR, 5, false},
+	0x56: {opcode.LSR, addressing.ZPX, (*CPU).LSR, 6, false},
+	0x4E: {opcode.LSR, addressing.ABS, (*CPU).LSR, 6, false},
+	0x5E: {opcode.LSR, addressing.ABX, (*CPU).LSR, 7, false},
 
-	0x0A: {opcode.ASL, addressing.IMP, (*CPU).ASLImp},
-	0x06: {opcode.ASL, addressing.ZPG, (*CPU).ASL},
-	0x16: {opcode.ASL, addressing.ZPX, (*CPU).ASL},
-	0x0E: {opcode.ASL, addressing.ABS, (*CPU).ASL},
-	0x1E: {opcode.ASL, addressing.ABX, (*CPU).ASL},
+	0x0A: {opcode.ASL, addressing.IMP, (*CPU).ASLImp, 2, false},
+	0x06: {opcode.ASL, addressing.ZPG, (*CPU).ASL, 5, false},
+	0x16: {opcode.ASL, addressing.ZPX, (*CPU).ASL, 6, false},
+	0x0E: {opcode.ASL, addressing.ABS, (*CPU).ASL, 6, false},
+	0x1E: {opcode.ASL, addressing.ABX, (*CPU).ASL, 7, false},
 
-	0x6A: {opcode.ROR, addressing.IMP, (*CPU).RORImp},
-	0x66: {opcode.ROR, addressing.ZPG, (*CPU).ROR},
-	0x76: {opcode.ROR, addressing.ZPX, (*CPU).ROR},
-	0x6E: {opcode.ROR, addressing.ABS, (*CPU).ROR},
-	0x7E: {opcode.ROR, addressing.ABX, (*CPU).ROR},
+	0x6A: {opcode.ROR, addressing.IMP, (*CPU).RORImp, 2, false},
+	0x66: {opcode.ROR, addressing.ZPG, (*CPU).ROR, 5, false},
+	0x76: {opcode.ROR, addressing.ZPX, (*CPU).ROR, 6, false},
+	0x6E: {opcode.ROR, addressing.ABS, (*CPU).ROR, 6, false},
+	0x7E: {opcode.ROR, addressing.ABX, (*CPU).ROR, 7, false},
 
-	0x2A: {opcode.ROL, addressing.IMP, (*CPU).ROLImp},
-	0x26: {opcode.ROL, addressing.ZPG, (*CPU).ROL},
-	0x36: {opcode.ROL, addressing.ZPX, (*CPU).ROL},
-	0x2E: {opcode.ROL, addressing.ABS, (*CPU).ROL},
-	0x3E: {opcode.ROL, addressing.ABX, (*CPU).ROL},
+	0x2A: {opcode.ROL, addressing.IMP, (*CPU).ROLImp, 2, false},
+	0x26: {opcode.ROL, addressing.ZPG, (*CPU).ROL, 5, false},
+	0x36: {opcode.ROL, addressing.ZPX, (*CPU).ROL, 6, false},
+	0x2E: {opcode.ROL, addressing.ABS, (*CPU).ROL, 6, false},
+	0x3E: {opcode.ROL, addressing.ABX, (*CPU).ROL, 7, false},
 
-	0xE6: {opcode.INC, addressing.ZPG, (*CPU).INC},
-	0xF6: {opcode.INC, addressing.ZPX, (*CPU).INC},
-	0xEE: {opcode.INC, addressing.ABS, (*CPU).INC},
-	0xFE: {opcode.INC, addressing.ABX, (*CPU).INC},
+	0xE6: {opcode.INC, addressing.ZPG, (*CPU).INC, 5, false},
+	0xF6: {opcode.INC, addressing.ZPX, (*CPU).INC, 6, false},
+	0xEE: {opcode.INC, addressing.ABS, (*CPU).INC, 6, false},
+	0xFE: {opcode.INC, addressing.ABX, (*CPU).INC, 7, false},
 
-	0x04: {opcode.NOP, addressing.ZPG, (*CPU).NOP},
-	0x0C: {opcode.NOP, addressing.ABS, (*CPU).NOP},
-	0x14: {opcode.NOP, addressing.ZPX, (*CPU).NOP},
-	0x1A: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0x1C: {opcode.NOP, addressing.ABX, (*CPU).NOP},
-	0x34: {opcode.NOP, addressing.ZPX, (*CPU).NOP},
-	0x3A: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0x3C: {opcode.NOP, addressing.ABX, (*CPU).NOP},
-	0x44: {opcode.NOP, addressing.ZPG, (*CPU).NOP},
-	0x54: {opcode.NOP, addressing.ZPX, (*CPU).NOP},
-	0x5A: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0x5C: {opcode.NOP, addressing.ABX, (*CPU).NOP},
-	0x64: {opcode.NOP, addressing.ZPG, (*CPU).NOP},
-	0x74: {opcode.NOP, addressing.ZPX, (*CPU).NOP},
-	0x7A: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0x7C: {opcode.NOP, addressing.ABX, (*CPU).NOP},
-	0x80: {opcode.NOP, addressing.IMM, (*CPU).NOP},
-	0x82: {opcode.NOP, addressing.IMM, (*CPU).NOP},
-	0x89: {opcode.NOP, addressing.IMM, (*CPU).NOP},
-	0xC2: {opcode.NOP, addressing.IMM, (*CPU).NOP},
-	0xD4: {opcode.NOP, addressing.ZPX, (*CPU).NOP},
-	0xDA: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0xDC: {opcode.NOP, addressing.ABX, (*CPU).NOP},
-	0xE2: {opcode.NOP, addressing.IMM, (*CPU).NOP},
-	0xEA: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0xF4: {opcode.NOP, addressing.ZPX, (*CPU).NOP},
-	0xFA: {opcode.NOP, addressing.IMP, (*CPU).NOP},
-	0xFC: {opcode.NOP, addressing.ABX, (*CPU).NOP},
+	0x04: {opcode.NOP, addressing.ZPG, (*CPU).NOP, 3, false},
+	0x0C: {opcode.NOP, addressing.ABS, (*CPU).NOP, 4, false},
 
-	0xA3: {opcode.LAX, addressing.INX, (*CPU).LAX},
-	0xA7: {opcode.LAX, addressing.ZPG, (*CPU).LAX},
-	0xAB: {opcode.LAX, addressing.IMM, (*CPU).LAX},
-	0xAF: {opcode.LAX, addressing.ABS, (*CPU).LAX},
-	0xB3: {opcode.LAX, addressing.INY, (*CPU).LAX},
-	0xB7: {opcode.LAX, addressing.ZPY, (*CPU).LAX},
-	0xBF: {opcode.LAX, addressing.ABY, (*CPU).LAX},
+	0x14: {opcode.NOP, addressing.ZPX, (*CPU).NOP, 4, false},
+	0x1A: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, true /* check across */},
+	0x1C: {opcode.NOP, addressing.ABX, (*CPU).NOP, 4, false},
 
-	0x83: {opcode.SAX, addressing.INX, (*CPU).SAX},
-	0x87: {opcode.SAX, addressing.ZPG, (*CPU).SAX},
-	0x8F: {opcode.SAX, addressing.ABS, (*CPU).SAX},
-	0x97: {opcode.SAX, addressing.ZPY, (*CPU).SAX},
+	0x34: {opcode.NOP, addressing.ZPX, (*CPU).NOP, 4, false},
+	0x3A: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, true /* check across */},
+	0x3C: {opcode.NOP, addressing.ABX, (*CPU).NOP, 4, false},
 
-	0xC3: {opcode.DCP, addressing.INX, (*CPU).DCP},
-	0xC7: {opcode.DCP, addressing.ZPG, (*CPU).DCP},
-	0xCF: {opcode.DCP, addressing.ABS, (*CPU).DCP},
-	0xD3: {opcode.DCP, addressing.INY, (*CPU).DCP},
-	0xD7: {opcode.DCP, addressing.ZPX, (*CPU).DCP},
-	0xDB: {opcode.DCP, addressing.ABY, (*CPU).DCP},
-	0xDF: {opcode.DCP, addressing.ABX, (*CPU).DCP},
+	0x44: {opcode.NOP, addressing.ZPG, (*CPU).NOP, 3, false},
 
-	0xE3: {opcode.ISB, addressing.INX, (*CPU).ISB},
-	0xE7: {opcode.ISB, addressing.ZPG, (*CPU).ISB},
-	0xEF: {opcode.ISB, addressing.ABS, (*CPU).ISB},
-	0xF3: {opcode.ISB, addressing.INY, (*CPU).ISB},
-	0xF7: {opcode.ISB, addressing.ZPX, (*CPU).ISB},
-	0xFB: {opcode.ISB, addressing.ABY, (*CPU).ISB},
-	0xFF: {opcode.ISB, addressing.ABX, (*CPU).ISB},
+	0x54: {opcode.NOP, addressing.ZPX, (*CPU).NOP, 4, false},
+	0x5A: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, true /* check across */},
+	0x5C: {opcode.NOP, addressing.ABX, (*CPU).NOP, 4, false},
 
-	0x03: {opcode.SLO, addressing.INX, (*CPU).SLO},
-	0x07: {opcode.SLO, addressing.ZPG, (*CPU).SLO},
-	0x0F: {opcode.SLO, addressing.ABS, (*CPU).SLO},
-	0x13: {opcode.SLO, addressing.INY, (*CPU).SLO},
-	0x17: {opcode.SLO, addressing.ZPX, (*CPU).SLO},
-	0x1B: {opcode.SLO, addressing.ABY, (*CPU).SLO},
-	0x1F: {opcode.SLO, addressing.ABX, (*CPU).SLO},
+	0x64: {opcode.NOP, addressing.ZPG, (*CPU).NOP, 3, false},
 
-	0x23: {opcode.RLA, addressing.INX, (*CPU).RLA},
-	0x27: {opcode.RLA, addressing.ZPG, (*CPU).RLA},
-	0x2F: {opcode.RLA, addressing.ABS, (*CPU).RLA},
-	0x33: {opcode.RLA, addressing.INY, (*CPU).RLA},
-	0x37: {opcode.RLA, addressing.ZPX, (*CPU).RLA},
-	0x3B: {opcode.RLA, addressing.ABY, (*CPU).RLA},
-	0x3F: {opcode.RLA, addressing.ABX, (*CPU).RLA},
+	0x74: {opcode.NOP, addressing.ZPX, (*CPU).NOP, 4, false},
+	0x7A: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, true /* check across */},
+	0x7C: {opcode.NOP, addressing.ABX, (*CPU).NOP, 4, false},
 
-	0x43: {opcode.SRE, addressing.INX, (*CPU).SRE},
-	0x47: {opcode.SRE, addressing.ZPG, (*CPU).SRE},
-	0x4F: {opcode.SRE, addressing.ABS, (*CPU).SRE},
-	0x53: {opcode.SRE, addressing.INY, (*CPU).SRE},
-	0x57: {opcode.SRE, addressing.ZPX, (*CPU).SRE},
-	0x5B: {opcode.SRE, addressing.ABY, (*CPU).SRE},
-	0x5F: {opcode.SRE, addressing.ABX, (*CPU).SRE},
+	0x80: {opcode.NOP, addressing.IMM, (*CPU).NOP, 2, false},
+	0x82: {opcode.NOP, addressing.IMM, (*CPU).NOP, 2, false},
+	0x89: {opcode.NOP, addressing.IMM, (*CPU).NOP, 2, false},
 
-	0x63: {opcode.RRA, addressing.INX, (*CPU).RRA},
-	0x67: {opcode.RRA, addressing.ZPG, (*CPU).RRA},
-	0x6F: {opcode.RRA, addressing.ABS, (*CPU).RRA},
-	0x73: {opcode.RRA, addressing.INY, (*CPU).RRA},
-	0x77: {opcode.RRA, addressing.ZPX, (*CPU).RRA},
-	0x7B: {opcode.RRA, addressing.ABY, (*CPU).RRA},
-	0x7F: {opcode.RRA, addressing.ABX, (*CPU).RRA},
+	0xC2: {opcode.NOP, addressing.IMM, (*CPU).NOP, 2, false},
+
+	0xD4: {opcode.NOP, addressing.ZPX, (*CPU).NOP, 4, false},
+	0xDA: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, true /* check across */},
+	0xDC: {opcode.NOP, addressing.ABX, (*CPU).NOP, 4, false},
+
+	0xE2: {opcode.NOP, addressing.IMM, (*CPU).NOP, 2, false},
+	0xEA: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, false},
+
+	0xF4: {opcode.NOP, addressing.ZPX, (*CPU).NOP, 4, false},
+	0xFA: {opcode.NOP, addressing.IMP, (*CPU).NOP, 2, true /* check across */},
+	0xFC: {opcode.NOP, addressing.ABX, (*CPU).NOP, 4, false},
+
+	0xA7: {opcode.LAX, addressing.ZPG, (*CPU).LAX, 3, false},
+	0xB7: {opcode.LAX, addressing.ZPY, (*CPU).LAX, 4, false},
+	0xAF: {opcode.LAX, addressing.ABS, (*CPU).LAX, 4, false},
+	0xBF: {opcode.LAX, addressing.ABY, (*CPU).LAX, 4, true /* +1 if page crossed */},
+	0xA3: {opcode.LAX, addressing.INX, (*CPU).LAX, 6, false},
+	0xB3: {opcode.LAX, addressing.INY, (*CPU).LAX, 5, true /* +1 if page crossed */},
+	0xAB: {opcode.LAX, addressing.IMM, (*CPU).LAX, 2, false},
+
+	0x87: {opcode.SAX, addressing.ZPG, (*CPU).SAX, 3, false},
+	0x97: {opcode.SAX, addressing.ZPY, (*CPU).SAX, 4, false},
+	0x8F: {opcode.SAX, addressing.ABS, (*CPU).SAX, 4, false},
+	0x83: {opcode.SAX, addressing.INX, (*CPU).SAX, 6, false},
+
+	0xC7: {opcode.DCP, addressing.ZPG, (*CPU).DCP, 5, false},
+	0xD7: {opcode.DCP, addressing.ZPX, (*CPU).DCP, 6, false},
+	0xCF: {opcode.DCP, addressing.ABS, (*CPU).DCP, 6, false},
+	0xDF: {opcode.DCP, addressing.ABX, (*CPU).DCP, 7, false},
+	0xDB: {opcode.DCP, addressing.ABY, (*CPU).DCP, 7, false},
+	0xC3: {opcode.DCP, addressing.INX, (*CPU).DCP, 8, false},
+	0xD3: {opcode.DCP, addressing.INY, (*CPU).DCP, 8, false},
+
+	0xE7: {opcode.ISB, addressing.ZPG, (*CPU).ISB, 5, false},
+	0xF7: {opcode.ISB, addressing.ZPX, (*CPU).ISB, 6, false},
+	0xEF: {opcode.ISB, addressing.ABS, (*CPU).ISB, 6, false},
+	0xFF: {opcode.ISB, addressing.ABX, (*CPU).ISB, 7, false},
+	0xFB: {opcode.ISB, addressing.ABY, (*CPU).ISB, 7, false},
+	0xE3: {opcode.ISB, addressing.INX, (*CPU).ISB, 8, false},
+	0xF3: {opcode.ISB, addressing.INY, (*CPU).ISB, 4, false},
+
+	0x07: {opcode.SLO, addressing.ZPG, (*CPU).SLO, 5, false},
+	0x17: {opcode.SLO, addressing.ZPX, (*CPU).SLO, 6, false},
+	0x0F: {opcode.SLO, addressing.ABS, (*CPU).SLO, 6, false},
+	0x1F: {opcode.SLO, addressing.ABX, (*CPU).SLO, 7, false},
+	0x1B: {opcode.SLO, addressing.ABY, (*CPU).SLO, 7, false},
+	0x03: {opcode.SLO, addressing.INX, (*CPU).SLO, 8, false},
+	0x13: {opcode.SLO, addressing.INY, (*CPU).SLO, 8, false},
+
+	0x27: {opcode.RLA, addressing.ZPG, (*CPU).RLA, 5, false},
+	0x37: {opcode.RLA, addressing.ZPX, (*CPU).RLA, 6, false},
+	0x2F: {opcode.RLA, addressing.ABS, (*CPU).RLA, 6, false},
+	0x3F: {opcode.RLA, addressing.ABX, (*CPU).RLA, 7, false},
+	0x3B: {opcode.RLA, addressing.ABY, (*CPU).RLA, 7, false},
+	0x23: {opcode.RLA, addressing.INX, (*CPU).RLA, 8, false},
+	0x33: {opcode.RLA, addressing.INY, (*CPU).RLA, 8, false},
+
+	0x47: {opcode.SRE, addressing.ZPG, (*CPU).SRE, 5, false},
+	0x57: {opcode.SRE, addressing.ZPX, (*CPU).SRE, 6, false},
+	0x4F: {opcode.SRE, addressing.ABS, (*CPU).SRE, 6, false},
+	0x5F: {opcode.SRE, addressing.ABX, (*CPU).SRE, 7, false},
+	0x5B: {opcode.SRE, addressing.ABY, (*CPU).SRE, 7, false},
+	0x43: {opcode.SRE, addressing.INX, (*CPU).SRE, 8, false},
+	0x53: {opcode.SRE, addressing.INY, (*CPU).SRE, 8, false},
+
+	0x67: {opcode.RRA, addressing.ZPG, (*CPU).RRA, 5, false},
+	0x77: {opcode.RRA, addressing.ZPX, (*CPU).RRA, 6, false},
+	0x6F: {opcode.RRA, addressing.ABS, (*CPU).RRA, 6, false},
+	0x7F: {opcode.RRA, addressing.ABX, (*CPU).RRA, 7, false},
+	0x7B: {opcode.RRA, addressing.ABY, (*CPU).RRA, 7, false},
+	0x63: {opcode.RRA, addressing.INX, (*CPU).RRA, 8, false},
+	0x73: {opcode.RRA, addressing.INY, (*CPU).RRA, 8, false},
 }
 
 func (c *CPU) RRA(addr uint16) {
@@ -580,6 +593,7 @@ func (c *CPU) ORA(operandAddr uint16) {
 }
 func (c *CPU) BMI(operandAddr uint16) {
 	if c.register.getFlag(FLAG_N) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
@@ -634,18 +648,21 @@ func (c *CPU) RTI(operandAddr uint16) {
 
 func (c *CPU) BPL(operandAddr uint16) {
 	if !c.register.getFlag(FLAG_N) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
 
 func (c *CPU) BVC(operandAddr uint16) {
 	if !c.register.getFlag(FLAG_V) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
 
 func (c *CPU) BVS(operandAddr uint16) {
 	if c.register.getFlag(FLAG_V) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
@@ -659,12 +676,14 @@ func (c *CPU) BIT(operandAddr uint16) {
 
 func (c *CPU) BEQ(operandAddr uint16) {
 	if c.register.getFlag(FLAG_Z) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
 
 func (c *CPU) BNE(operandAddr uint16) {
 	if !c.register.getFlag(FLAG_Z) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
@@ -676,6 +695,7 @@ func (c *CPU) LDA(operandAddr uint16) {
 
 func (c *CPU) BCC(operandAddr uint16) {
 	if !c.register.getFlag(FLAG_C) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }
@@ -686,6 +706,7 @@ func (c *CPU) CLC(operandAddr uint16) {
 
 func (c *CPU) BCS(operandAddr uint16) {
 	if c.register.getFlag(FLAG_C) {
+		c.bus.Tick(1)
 		c.register.PC = operandAddr
 	}
 }

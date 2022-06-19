@@ -7,10 +7,15 @@ import (
 	"fmt"
 )
 
+type Bus interface {
+	Tick(int)
+}
+
 type CPU struct {
 	memo     Memo
 	register *Register
 	debug    bool
+	bus      Bus
 }
 
 func NewCPU(memo Memo, debug bool) *CPU {
@@ -73,9 +78,13 @@ func (c *CPU) ExecuteOneInstructionInDebug() (*TraceLog, error) {
 	}
 	traceLog.Mode = instruction.Mode
 	traceLog.Code = instruction.Code
-	addr := c.Addressing(instruction.Mode)
+	addr, crossPage := c.Addressing(instruction.Mode)
 	traceLog.Addr = addr
 	instruction.Handle(c, addr)
+	c.bus.Tick(instruction.Cycle)
+	if instruction.CheckPageCross && crossPage {
+		c.bus.Tick(1)
+	}
 	traceLog.NewReg = *c.register
 	return traceLog, nil
 }
@@ -88,8 +97,12 @@ func (c *CPU) ExecuteOneInstructionNoDebug() error {
 		panic(fmt.Sprintf("opcode 0x%02X is not support", opcodeNumber))
 		return nil
 	}
-	addr := c.Addressing(instruction.Mode)
+	addr, crossPage := c.Addressing(instruction.Mode) // 寻址，读参数
 	instruction.Handle(c, addr)
+	c.bus.Tick(instruction.Cycle)
+	if instruction.CheckPageCross && crossPage {
+		c.bus.Tick(1)
+	}
 	return nil
 }
 

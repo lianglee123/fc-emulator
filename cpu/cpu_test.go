@@ -3,6 +3,7 @@ package cpu
 import (
 	"errors"
 	"fc-emulator/cpu/addressing"
+	"fc-emulator/pad"
 	"fc-emulator/ppu"
 	"fc-emulator/rom"
 	"fmt"
@@ -61,7 +62,7 @@ func (d *LogDiffer) Diff(traceLog *TraceLog, cpu *CPU) error {
 func TestCPU(t *testing.T) {
 	nesRom, err := rom.LoadNesRom("nestest.nes")
 	require.NoError(t, err)
-	cpuMemo := NewMemo(nesRom, ppu.NewPPU(nesRom))
+	cpuMemo := NewMemo(nesRom, ppu.NewPPU(nesRom), pad.NewPad(), pad.NewPad())
 	c := NewCPU(cpuMemo, true)
 	c.Reset()
 	c.register.PC = 0xC000

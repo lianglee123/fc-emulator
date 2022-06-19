@@ -11,6 +11,13 @@ type Bus interface {
 	Tick(int)
 }
 
+type DefaultBus struct {
+}
+
+func (bus *DefaultBus) Tick(n int) {
+
+}
+
 type CPU struct {
 	memo     Memo
 	register *Register
@@ -30,6 +37,7 @@ func NewCPU(memo Memo, debug bool) *CPU {
 			Y:  0,
 		},
 		debug: debug,
+		bus:   &DefaultBus{},
 	}
 }
 

@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"fc-emulator/cpu/addressing"
+	"fc-emulator/utils"
 	"fmt"
 )
 
@@ -69,7 +70,7 @@ func (c *CPU) AddressIndirect() (uint16, bool) {
 	if addr&0xFF == 0xFF {
 		byte1 := c.memo.Read(addr)
 		byte2 := c.memo.Read(addr & 0xFF00)
-		return littleEndian(byte1, byte2), false
+		return utils.LittleEndian(byte1, byte2), false
 	} else {
 		return c.memo.ReadWord(addr), false
 	}
@@ -85,7 +86,7 @@ func (c *CPU) AddressIndexedDirectX() (uint16, bool) {
 	addr := c.register.X + v
 	byte1 := c.memo.Read(uint16(addr)) // 注意，这里不能用c.memo.ReadWord(), 这两者在逻辑上是有差距的
 	byte2 := c.memo.Read(uint16(addr + 1))
-	return littleEndian(byte1, byte2), false
+	return utils.LittleEndian(byte1, byte2), false
 }
 
 func (c *CPU) AddressIndirectIndexedY() (uint16, bool) {
@@ -93,7 +94,7 @@ func (c *CPU) AddressIndirectIndexedY() (uint16, bool) {
 	c.register.IncreasePC()
 	byte1 := c.memo.Read(uint16(v))
 	byte2 := c.memo.Read(uint16(v + 1))
-	baseAddr := littleEndian(byte1, byte2)
+	baseAddr := utils.LittleEndian(byte1, byte2)
 	addr := baseAddr + uint16(c.register.Y)
 	return addr, c.IsCrossPage(baseAddr, addr)
 }

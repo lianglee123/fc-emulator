@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fc-emulator/cpu/addressing"
 	"fc-emulator/cpu/opcode"
+	memo2 "fc-emulator/memo"
 	"fmt"
 )
 
@@ -19,13 +20,13 @@ func (bus *DefaultBus) Tick(n int) {
 }
 
 type CPU struct {
-	memo     Memo
+	memo     memo2.Memo
 	register *Register
 	debug    bool
 	bus      Bus
 }
 
-func NewCPU(memo Memo, debug bool) *CPU {
+func NewCPU(memo memo2.Memo, debug bool) *CPU {
 	return &CPU{
 		memo: memo,
 		register: &Register{

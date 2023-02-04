@@ -16,6 +16,7 @@ type PPU interface {
 	Render() image.Image
 	CanInterrupt() bool
 	EnterVblank()
+	Tick()
 }
 
 type PPUImpl struct {
@@ -36,6 +37,10 @@ func NewPPU(rom *rom.NesRom) PPU {
 
 func (p *PPUImpl) CanInterrupt() bool {
 	return p.Register.PPUCTRL.CanGenerateNMIBreakAtStartOfVerticalBlankingInterval()
+}
+
+func (p *PPUImpl) Tick() {
+
 }
 
 func (p *PPUImpl) ReadForCPU(addr uint16) byte {

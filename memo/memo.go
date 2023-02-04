@@ -1,4 +1,4 @@
-package cpu
+package memo
 
 import (
 	"fc-emulator/pad"

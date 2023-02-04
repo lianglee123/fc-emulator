@@ -2,6 +2,7 @@ package emu
 
 import (
 	"fc-emulator/cpu"
+	"fc-emulator/memo"
 	"fc-emulator/pad"
 	"fc-emulator/ppu"
 	"fc-emulator/rom"
@@ -39,7 +40,7 @@ func (e *Emu) Load(fileName string) error {
 	e.PPU = _ppu
 	pad1 := pad.NewPad()
 	pad2 := pad.NewPad()
-	cpuMemo := cpu.NewMemo(nesRom, _ppu, pad1, pad2)
+	cpuMemo := memo.NewMemo(nesRom, _ppu, pad1, pad2)
 	c := cpu.NewCPU(cpuMemo, e.Opt.Debug)
 	c.Reset()
 	e.CPU = c

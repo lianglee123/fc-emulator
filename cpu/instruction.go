@@ -3,6 +3,7 @@ package cpu
 import (
 	"fc-emulator/cpu/addressing"
 	"fc-emulator/cpu/opcode"
+	"fc-emulator/utils"
 )
 
 type Instruction struct {
@@ -636,7 +637,7 @@ func (c *CPU) PLA(operandAddr uint16) {
 func (c *CPU) RTS(operandAddr uint16) {
 	byte1 := c.StackPop()
 	byte2 := c.StackPop()
-	c.register.PC = littleEndian(byte1, byte2) + 1
+	c.register.PC = utils.LittleEndian(byte1, byte2) + 1
 }
 
 func (c *CPU) RTI(operandAddr uint16) {
@@ -759,7 +760,7 @@ func (c *CPU) StackPop() uint8 {
 func (c *CPU) StackPopWord() uint16 {
 	byte1 := c.StackPop()
 	byte2 := c.StackPop()
-	return littleEndian(byte1, byte2)
+	return utils.LittleEndian(byte1, byte2)
 }
 
 func (c *CPU) SEI(operandAddr uint16) { // set interrupt disable
